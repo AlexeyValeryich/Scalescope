@@ -1,0 +1,2200 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Scalescope — Аппроксимация чистых интервалов в EDO</title>
+<style>
+  :root {
+    --bg: #f5f9f5; --card: #ffffff;
+    --green-dark: #1b5e20; --green: #2e7d32;
+    --green-pale: #c8e6c9; --text: #1a2e1a;
+    --muted: #5a6e5a; --accent: #ef6c00; --border: #d0e4d0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text); margin: 0; padding: 24px; line-height: 1.5;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+  .header-row { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
+  .header-text { flex: 1 1 400px; }
+  h1 { color: var(--green-dark); font-size: 1.6rem; margin: 0 0 4px; }
+  .subtitle { color: var(--muted); margin: 0; font-size: 0.95rem; }
+  .header-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .header-actions button { padding: 7px 12px; font-size: 0.85rem; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .card h2 { color: var(--green-dark); font-size: 1.1rem; margin: 0 0 16px; }
+  .card-header-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+  label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; font-weight: 500; }
+  input, select, textarea {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 0.9rem; font-family: inherit; background: var(--bg); color: var(--text);
+  }
+  textarea {
+    font-family: Consolas, Monaco, monospace; font-size: 0.92rem !important;
+    line-height: 1.5 !important; min-height: 340px; resize: vertical;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--green); box-shadow: 0 0 0 3px rgba(102,187,106,0.2); }
+  button {
+    background: var(--green); color: white; border: none; padding: 10px 20px;
+    border-radius: 6px; font-size: 0.95rem; font-weight: 500; cursor: pointer;
+    transition: background .15s; font-family: inherit;
+  }
+  button:hover { background: var(--green-dark); }
+  button.secondary { background: var(--bg); color: var(--green-dark); border: 1px solid var(--green); }
+  button.secondary:hover { background: var(--green-pale); }
+  button.small { padding: 4px 10px; font-size: 0.8rem; }
+  button.danger { background: #c62828; }
+  button.danger:hover { background: #8e0000; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button:disabled:hover { background: var(--bg); }
+  button.danger:disabled:hover { background: #c62828; }
+  .btn-row { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { color: var(--green-dark); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: .03em; }
+  tr.best { background: #e8f5e9; }
+  tr.best td { font-weight: 600; }
+  #curveCanvas { width: 100%; height: 380px; background: var(--bg); border-radius: 8px; display: block; cursor: crosshair; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .hint { font-size: 0.8rem; color: var(--muted); margin-top: 6px; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.82rem; color: var(--muted); margin-top: 10px; }
+  .legend span { display: flex; align-items: center; gap: 6px; }
+  .swatch { width: 14px; height: 3px; border-radius: 2px; }
+  .interval-chip {
+    display: inline-block; padding: 2px 8px; margin: 2px; border-radius: 4px;
+    font-family: Consolas, monospace; font-size: 0.78rem; font-weight: 500;
+    border: 1px solid transparent;
+  }
+  .interval-chip.miss { border-color: #c62828; }
+
+  .demo-row { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; align-items: end; }
+  @media (max-width: 640px) { .demo-row { grid-template-columns: 1fr; } }
+
+  .timbre-header { display: flex; gap: 20px; align-items: flex-start; margin-bottom: 14px; flex-wrap: wrap; }
+  .timbre-left { display: flex; flex-direction: column; gap: 10px; flex: 1 1 280px; min-width: 0; }
+  .timbre-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: 0 0 auto; }
+  .timbre-svg { display: block; width: 320px; height: 150px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border); padding: 6px; }
+  .timbre-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+  .ab-switch { display: inline-flex; border: 1px solid var(--green); border-radius: 6px; overflow: hidden; }
+  .ab-switch button { border-radius: 0; padding: 6px 14px; font-size: 0.85rem; background: var(--bg); color: var(--green-dark); border: none; }
+  .ab-switch button.active { background: var(--green); color: white; }
+  .ab-switch button:not(:last-child) { border-right: 1px solid var(--green); }
+
+  .preset-picker { position: relative; }
+  .preset-panel {
+    display: none; position: absolute; top: 100%; left: 0;
+    background: #fff; border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    z-index: 100; width: 500px; max-width: 90vw; max-height: 480px;
+    overflow-y: auto; margin-top: 4px;
+  }
+  .preset-panel.open { display: block; }
+  .preset-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .preset-category {
+    grid-column: 1 / -1; font-size: 0.75rem; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; margin-top: 10px; margin-bottom: 4px;
+    border-bottom: 1px solid var(--border); padding-bottom: 4px;
+  }
+  .preset-category:first-child { margin-top: 0; }
+  .preset-item {
+    padding: 6px 8px; font-size: 0.8rem; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 4px;
+    text-align: left; color: var(--text); cursor: pointer; font-family: inherit;
+  }
+  .preset-item:hover { background: var(--green-pale); border-color: var(--green); }
+
+  .harmonics-control { display: flex; flex-direction: column; gap: 6px; }
+  .harmonics-row { display: flex; gap: 10px; align-items: center; max-width: 360px; }
+  .harmonics-row input[type="range"] { flex: 1; padding: 0; height: 6px; cursor: pointer; accent-color: var(--green); }
+  .harmonics-row input[type="number"] {
+    width: 80px; text-align: center; cursor: ns-resize; user-select: none;
+    font-weight: 600; font-size: 1rem; color: var(--green-dark);
+  }
+  .harmonics-row input[type="number"]::-webkit-outer-spin-button,
+  .harmonics-row input[type="number"]::-webkit-inner-spin-button { opacity: 0.4; }
+
+  .sliders-container {
+    display: flex; gap: 6px; padding: 12px 8px 8px;
+    overflow-x: auto; margin-bottom: 16px;
+    background: #fafdfa; border: 1px solid var(--border);
+    border-radius: 8px; align-items: flex-end; min-height: 200px;
+  }
+  .harmonic-slider { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 0 0 30px; }
+  .slider-track {
+    width: 24px; height: 140px;
+    display: flex; align-items: center; justify-content: center; position: relative;
+  }
+  .slider-track input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 140px; height: 20px; margin: 0; padding: 0;
+    transform: rotate(-90deg); transform-origin: center;
+    background: transparent; cursor: pointer;
+  }
+  .slider-track input[type="range"]::-webkit-slider-runnable-track { height: 4px; background: #c8e6c9; border-radius: 2px; border: none; }
+  .slider-track input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--green); margin-top: -6px;
+    cursor: pointer; border: 2px solid white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  }
+  .slider-track input[type="range"]::-moz-range-track { height: 4px; background: #c8e6c9; border-radius: 2px; border: none; }
+  .slider-track input[type="range"]::-moz-range-thumb {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--green); cursor: pointer; border: 2px solid white;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  }
+  .slider-num { font-size: 0.72rem; font-weight: 600; color: var(--green-dark); }
+  .slider-val { font-size: 0.62rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .sort-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 14px; }
+  .sort-row > div { flex: 0 1 320px; }
+
+  .canvas-msg {
+    display: none; margin-top: 8px; padding: 6px 10px;
+    border-radius: 4px; font-size: 0.82rem;
+    background: #e8f5e9; color: #1b5e20; border-left: 3px solid var(--green);
+  }
+  .canvas-msg.error { background: #ffebee; color: #c62828; border-left-color: #c62828; }
+
+  .hints-wrap { margin-top: 10px; }
+  .hints-body { margin-top: 10px; }
+
+  kbd {
+    background: #fff; border: 1px solid var(--border);
+    border-radius: 3px; padding: 0 5px; font-family: Consolas, monospace;
+    font-size: 0.78rem; box-shadow: 0 1px 0 rgba(0,0,0,0.08);
+  }
+
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    z-index: 1000; justify-content: center; align-items: center; padding: 20px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: #fff; border-radius: 12px; padding: 24px; max-width: 95vw;
+    max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    min-width: 400px;
+  }
+  .modal h3 { color: var(--green-dark); margin: 0 0 16px; font-size: 1.15rem; }
+  .modal-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .preset-row { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .preset-row:last-child { border-bottom: none; }
+  .preset-name { flex: 1; font-size: 0.88rem; font-weight: 500; }
+  .preset-empty { color: var(--muted); font-size: 0.85rem; padding: 8px 0; }
+
+  .toast-container {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 2000; display: flex; flex-direction: column; gap: 8px;
+    pointer-events: none; max-width: 90vw;
+  }
+  .toast {
+    background: var(--green-dark); color: white; padding: 10px 18px;
+    border-radius: 8px; font-size: 0.9rem; font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    animation: toastIn 0.2s ease-out; pointer-events: auto;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  }
+  .toast.error { background: #c62828; }
+  .toast.info { background: #1565c0; }
+  @keyframes toastIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+  .toast.removing { animation: toastOut 0.2s ease-in forwards; }
+  @keyframes toastOut { to { opacity: 0; transform: translateY(-10px); } }
+
+  .name-input { font-size: 1rem !important; padding: 10px 12px !important; }
+
+  .tooltip-cents {
+    position: fixed; pointer-events: none; background: rgba(27,94,32,0.92);
+    color: white; padding: 3px 8px; border-radius: 4px;
+    font-size: 0.78rem; font-family: Consolas, monospace;
+    z-index: 500; display: none; white-space: nowrap;
+  }
+
+  .checkbox-label {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 0.88rem; color: var(--text); cursor: pointer;
+    padding: 6px 0; user-select: none;
+  }
+  .checkbox-label input[type="checkbox"] {
+    width: 16px; height: 16px; margin: 0; accent-color: var(--green); cursor: pointer;
+  }
+  .comb-info {
+    background: #f3e5f5; border-left: 3px solid #7b1fa2;
+    padding: 10px 14px; border-radius: 4px;
+    font-size: 0.87rem; margin-top: 12px; display: none; line-height: 1.7;
+  }
+  .comb-info.visible { display: block; }
+  .comb-info b { color: #4a148c; }
+  .comb-info .mono { font-family: Consolas, monospace; font-weight: 600; }
+  .comb-info .dev.pos { color: #ef6c00; font-family: Consolas, monospace; font-weight: 600; }
+  .comb-info .dev.neg { color: #1565c0; font-family: Consolas, monospace; font-weight: 600; }
+
+  .intervals-hint {
+    background: #e8f5e9; border-left: 3px solid var(--green);
+    padding: 8px 12px; border-radius: 4px;
+    font-size: 0.82rem; color: #1b5e20; margin-top: 8px;
+  }
+
+  /* Touch mode indicator */
+  .touch-indicator {
+    display: none;
+    padding: 8px 12px;
+    background: #e3f2fd;
+    border-left: 3px solid #1565c0;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    color: #0d47a1;
+    margin-bottom: 8px;
+  }
+  body.touch-mode .touch-indicator { display: block; }
+  body.touch-mode #analysisInfoRow { display: none; }
+  body.touch-mode #analysisLegend { display: none; }
+  body.touch-mode #analysisHints { display: none; }
+  body.touch-mode #resultsCard { display: none; }
+  body.touch-mode #paramsCard { display: none; }
+  body.touch-mode #demoCard { display: none; }
+  body.touch-mode #curveHint { display: none; }
+  body.touch-mode #analysisHint { display: none; }
+
+  /* Touch peak control */
+  .touch-peaks-control {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.82rem;
+    color: var(--muted);
+  }
+  body.touch-mode .touch-peaks-control { display: inline-flex; }
+  .touch-peaks-control input[type="number"] {
+    width: 54px; padding: 4px 6px; font-size: 0.85rem;
+    text-align: center; font-weight: 600; color: var(--green-dark);
+  }
+
+  /* Touch Ramo control */
+  .touch-ramo-control {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.82rem;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  body.touch-mode .touch-ramo-control { display: inline-flex; }
+  .touch-ramo-control input[type="checkbox"] {
+    width: 16px; height: 16px; margin: 0; accent-color: var(--green); cursor: pointer;
+  }
+
+  .touch-chord-info {
+    font-family: Consolas, monospace;
+    font-size: 0.95rem;
+    color: var(--green-dark);
+    font-weight: 700;
+    padding: 8px 0;
+    min-height: 1.5em;
+  }
+
+  .footer {
+    text-align: center;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .footer a {
+    color: var(--green-dark);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .footer a:hover {
+    text-decoration: underline;
+  }
+</style>
+</head>
+<body>
+<div class="toast-container" id="toastContainer"></div>
+
+<div class="container">
+  <div class="header-row">
+    <div class="header-text">
+      <h1>Scalescope — Аппроксимация чистых интервалов в EDO</h1>
+      <p class="subtitle">Поиск равномерных делений октавы, приближающих заданные чистые интервалы, и визуализация на кривой диссонанса Сетареса.</p>
+    </div>
+    <div class="header-actions">
+      <button type="button" id="saveSettingsBtn" class="secondary small">💾 Сохранить</button>
+      <button type="button" id="loadSettingsBtn" class="secondary small">📂 Загрузить</button>
+      <button type="button" id="exportBtn" class="secondary small">📤 Экспорт</button>
+      <button type="button" id="importBtn" class="secondary small">📥 Импорт</button>
+      <input type="file" id="importFile" accept=".json" style="display:none;">
+    </div>
+  </div>
+
+  <div class="card" id="paramsCard">
+    <h2>⚙️ Параметры поиска</h2>
+    <label for="intervals">Целевые интервалы (по одному на строку)</label>
+    <textarea id="intervals">9/8 *0.5
+7/6 *0.4
+6/5 *1.0
+5/4 *1.0
+4/3 *1.0
+11/8 *0.5
+7/5 *0.4
+3/2 *1.5
+8/5 *0.8
+13/8 *0.4
+5/3 *0.8
+7/4 *0.6
+15/8 *0.3</textarea>
+    <div class="intervals-hint">
+      Формат: <code>3/2</code>, <code>702</code> или <code>Квинта: 3/2</code>. Вес — в конце: <code>3/2 *1.5</code>.
+    </div>
+    <div class="grid" style="margin-top:16px;">
+      <div><label for="tolerance">Допуск, центов</label><input type="number" id="tolerance" value="5" min="0.1" max="50" step="0.1"></div>
+      <div><label for="minEdo">Мин. EDO</label><input type="number" id="minEdo" value="7" min="1" max="200"></div>
+      <div><label for="maxEdo">Макс. EDO</label><input type="number" id="maxEdo" value="72" min="2" max="500"></div>
+    </div>
+    <div class="btn-row">
+      <button type="button" id="calcBtn">Рассчитать аппроксимации</button>
+      <button type="button" id="stripWeightsBtn" class="secondary small">Убрать веса</button>
+      <button type="button" id="resetBtn" class="secondary">Сбросить интервалы</button>
+    </div>
+  </div>
+
+  <div class="card" id="resultsCard" style="display:none;">
+    <div class="card-header-row">
+      <h2 style="margin:0;">📊 Результаты поиска</h2>
+      <button type="button" id="resultsToggleBtn" class="secondary small">Свернуть</button>
+    </div>
+    <div id="resultsBody">
+      <div id="summary" style="margin:16px 0;"></div>
+      <div class="sort-row">
+        <div>
+          <label for="sortBy">Сортировка</label>
+          <select id="sortBy">
+            <option value="match">По числу совпадений</option>
+            <option value="maxAsc">По макс. отклонению</option>
+            <option value="avgAsc">По среднему (взвеш.) отклонению</option>
+            <option value="edoAsc">По EDO (возрастание)</option>
+            <option value="edoDesc">По EDO (убывание)</option>
+          </select>
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table id="resultsTable">
+          <thead><tr><th>EDO</th><th>Совпадений</th><th>Макс. откл.</th><th>Среднее (взвеш.)</th><th>Интервалы</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="btn-row" id="expandRow" style="display:none;">
+        <button type="button" id="expandBtn" class="secondary small">Показать все результаты</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="curveCard">
+    <h2 id="curveTitle">📈 Кривая диссонанса Сетареса</h2>
+
+    <div class="timbre-header">
+      <div class="timbre-left">
+        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+          <div><label>Профиль</label>
+            <div class="ab-switch" id="abSwitch">
+              <button type="button" id="btnProfileA" class="active">A</button>
+              <button type="button" id="btnProfileB">B</button>
+            </div>
+          </div>
+          <div style="flex:1; min-width:150px;">
+            <label style="visibility:hidden;">.</label>
+            <span id="profileBName" class="hint" style="font-size:0.8rem; display:inline-block; padding:6px 0; color:var(--muted);"></span>
+          </div>
+        </div>
+        <div class="preset-picker">
+          <button type="button" id="presetPickerBtn" class="secondary small">📂 Выбрать пресет</button>
+          <div id="presetPickerPanel" class="preset-panel">
+            <div class="preset-grid" id="presetGrid"></div>
+          </div>
+        </div>
+        <div class="harmonics-control">
+          <label for="harmonics">Предел гармоник (2–40)</label>
+          <div class="harmonics-row">
+            <input type="range" id="harmonicsRange" value="13" min="2" max="40" step="1">
+            <input type="number" id="harmonics" value="13" min="2" max="40" step="1">
+          </div>
+        </div>
+        <div class="timbre-actions" style="margin-top:6px;">
+          <button type="button" id="modeToggleBtn" class="small" style="background:#1565c0;">🎹 Режим игры</button>
+          <button type="button" id="findNearestBtn" class="secondary small">🔍 Найти ближайший</button>
+          <button type="button" id="saveTimbreBtn" class="secondary small">💾 Сохранить</button>
+          <button type="button" id="deleteTimbreBtn" class="danger small">🗑 Удалить</button>
+          <label class="touch-peaks-control" title="Максимум вертикальных линий пиков консонанса">
+            Пиков: <input type="number" id="maxPeaks" value="15" min="1" max="40" step="1">
+          </label>
+          <label class="touch-ramo-control" title="Добавлять разностные тоны (Рамо) к каждой паре нот">
+            <input type="checkbox" id="touchRamoChk"> Разностный тон
+          </label>
+        </div>
+      </div>
+      <div class="timbre-right">
+        <svg class="timbre-svg" id="currentWaveSvg" viewBox="0 0 60 28" preserveAspectRatio="none">
+          <path id="currentWavePath" d="" fill="none" stroke="#2e7d32" stroke-width="1.3"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="sliders-container" id="slidersContainer"></div>
+
+    <div class="touch-indicator" id="touchIndicator">
+      🎹 <b>Режим игры</b> — горизонталь: высота звука (2 октавы, C в центре), вертикаль: громкость.
+      Клик/касание — играть. <kbd>Shift</kbd>+клик — зафиксировать ноту. <kbd>Alt</kbd>+клик — убрать ноту.
+    </div>
+
+    <div class="hint" id="analysisHint" style="margin-bottom:8px;">
+      💡 Клик по графику — прослушать интервал. <kbd>Shift</kbd>+клик — добавить. <kbd>Alt</kbd>+клик — удалить.
+    </div>
+
+    <canvas id="curveCanvas"></canvas>
+    <div id="canvasMsg" class="canvas-msg"></div>
+
+    <div class="legend" id="analysisLegend">
+      <span><span class="swatch" style="background:#2e7d32;"></span> Кривая диссонанса</span>
+      <span><span class="swatch" style="background:#ef6c00;"></span> Целевые интервалы</span>
+      <span><span class="swatch" style="background:rgba(21,101,192,0.6); height:14px; width:3px;"></span> Шаги EDO</span>
+    </div>
+    <div class="hint" id="curveHint"></div>
+
+    <div class="touch-chord-info" id="touchChordInfo" style="display:none;"></div>
+
+    <div class="hints-wrap" id="analysisHints">
+      <button type="button" id="hintsToggle" class="secondary small">Скрыть пояснения</button>
+      <div class="hints-body" id="hintsBody">
+        <div class="hint" style="margin-top:10px; padding:10px; background:#fff8e1; border-left:3px solid #f9a825; border-radius:4px;">
+          💡 <b>Убывание гармоник.</b> У пилы 1/n, у мягкого 1/n².
+        </div>
+        <div class="hint" style="margin-top:6px; padding:10px; background:#f3e5f5; border-left:3px solid #7b1fa2; border-radius:4px;">
+          🎺 <b>Форманты.</b> Резонансы корпуса или тракта — локальные «горбы» в амплитудах.
+        </div>
+        <div class="hint" style="margin-top:6px; padding:10px; background:#e8f5e9; border-left:3px solid #2e7d32; border-radius:4px;">
+          🎯 <b>Консонанс p/q</b> требует гармоник p и q в спектре.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="demoCard" style="display:none;">
+    <h2>🔊 Сравнение на слух</h2>
+    <div class="demo-row">
+      <div><label for="demoInterval">Интервал</label><select id="demoInterval"></select></div>
+      <div><label for="demoEdo">EDO</label><select id="demoEdo"></select></div>
+    </div>
+    <div class="btn-row">
+      <button type="button" id="playPure" class="secondary">▶ Чистый</button>
+      <button type="button" id="playEdo" class="secondary">▶ В EDO</button>
+    </div>
+    <label class="checkbox-label">
+      <input type="checkbox" id="showCombTone"> Озвучить разностный тон (Рамо)
+    </label>
+    <div class="comb-info" id="combToneInfo"></div>
+  </div>
+</div>
+
+<div class="footer">
+  Связь с автором: <a href="https://t.me/AlexeyValeryich" target="_blank" rel="noopener">@AlexeyValeryich</a>
+</div>
+
+<div class="modal-overlay" id="settingsModal">
+  <div class="modal">
+    <h3>📂 Загрузить настройки</h3>
+    <div id="settingsPresetsList"></div>
+    <div class="modal-actions" style="margin-top:16px;">
+      <button type="button" id="closeSettingsBtn">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="nameModal">
+  <div class="modal" style="min-width:320px;max-width:440px;">
+    <h3 id="nameModalTitle">Введите имя</h3>
+    <input type="text" class="name-input" id="nameModalInput" placeholder="Имя">
+    <div class="modal-actions" style="justify-content:flex-end;margin-top:16px;">
+      <button type="button" class="secondary" id="nameModalCancel">Отмена</button>
+      <button type="button" id="nameModalOk">OK</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal" style="min-width:320px;max-width:440px;">
+    <h3 id="confirmModalTitle">Подтверждение</h3>
+    <div id="confirmModalText" style="margin:8px 0 16px;color:var(--text);"></div>
+    <div class="modal-actions" style="justify-content:flex-end;">
+      <button type="button" class="secondary" id="confirmModalCancel">Отмена</button>
+      <button type="button" class="danger" id="confirmModalOk">OK</button>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip-cents" id="tooltipCents"></div>
+
+<script>
+// ===================== Константы =====================
+const BASE_FREQ = 261.63;
+const CURVE_PAD = { l: 52, r: 20, t: 24, b: 44 };
+const ratioToCents = r => 1200 * Math.log2(r);
+const centsToRatio = c => Math.pow(2, c / 1200);
+const LS_TIMBRE_KEY = 'microtonal_timbre_presets_v13';
+const LS_SETTINGS_KEY = 'microtonal_settings_presets_v13';
+
+let localStorageOk = true;
+try { localStorage.setItem('__t__', '1'); localStorage.removeItem('__t__'); } catch (e) { localStorageOk = false; }
+
+// ===================== Toast / modals =====================
+function showToast(text, type = 'success') {
+  const c = document.getElementById('toastContainer');
+  const t = document.createElement('div');
+  t.className = 'toast' + (type === 'error' ? ' error' : type === 'info' ? ' info' : '');
+  t.textContent = text;
+  c.appendChild(t);
+  setTimeout(() => { t.classList.add('removing'); setTimeout(() => t.remove(), 250); }, 2800);
+}
+function promptName(title, dv = '') {
+  return new Promise(resolve => {
+    const modal = document.getElementById('nameModal');
+    const input = document.getElementById('nameModalInput');
+    document.getElementById('nameModalTitle').textContent = title;
+    input.value = dv;
+    modal.classList.add('open');
+    setTimeout(() => { input.focus(); input.select(); }, 50);
+    const ok = document.getElementById('nameModalOk');
+    const cancel = document.getElementById('nameModalCancel');
+    function cleanup(r) {
+      modal.classList.remove('open');
+      ok.removeEventListener('click', onOk);
+      cancel.removeEventListener('click', onCancel);
+      input.removeEventListener('keydown', onKey);
+      resolve(r);
+    }
+    function onOk() { cleanup(input.value.trim() || null); }
+    function onCancel() { cleanup(null); }
+    function onKey(e) {
+      if (e.key === 'Enter') { e.preventDefault(); onOk(); }
+      if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
+    }
+    ok.addEventListener('click', onOk);
+    cancel.addEventListener('click', onCancel);
+    input.addEventListener('keydown', onKey);
+  });
+}
+function confirmDialog(title, text) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('confirmModal');
+    document.getElementById('confirmModalTitle').textContent = title;
+    document.getElementById('confirmModalText').textContent = text;
+    modal.classList.add('open');
+    const ok = document.getElementById('confirmModalOk');
+    const cancel = document.getElementById('confirmModalCancel');
+    function cleanup(r) {
+      modal.classList.remove('open');
+      ok.removeEventListener('click', onOk);
+      cancel.removeEventListener('click', onCancel);
+      resolve(r);
+    }
+    function onOk() { cleanup(true); }
+    function onCancel() { cleanup(false); }
+    ok.addEventListener('click', onOk);
+    cancel.addEventListener('click', onCancel);
+  });
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+// ===================== Справочник =====================
+const PURE_INTERVALS = [
+  { ratio: '33/32',  cents: 53.27,  name: 'ундецимальная 1/4-тоновая нота', weight: 0.10 },
+  { ratio: '25/24',  cents: 70.67,  name: 'малая диеса', weight: 0.15 },
+  { ratio: '22/21',  cents: 80.54,  name: 'септикальная секунда', weight: 0.20 },
+  { ratio: '21/20',  cents: 84.47,  name: 'малая хроматическая диеса', weight: 0.20 },
+  { ratio: '256/243', cents: 90.22, name: 'пифагорейская лимма', weight: 0.30 },
+  { ratio: '17/16',  cents: 104.96, name: 'септикальная хроматическая секунда', weight: 0.25 },
+  { ratio: '16/15',  cents: 111.73, name: 'диатонический полутон', weight: 0.40 },
+  { ratio: '15/14',  cents: 119.44, name: 'септикальная малая секунда', weight: 0.30 },
+  { ratio: '14/13',  cents: 128.30, name: 'тридецимальная малая секунда', weight: 0.20 },
+  { ratio: '27/25',  cents: 133.24, name: 'малая целотонная диеса', weight: 0.20 },
+  { ratio: '13/12',  cents: 138.57, name: 'тридецимальная нейтральная секунда', weight: 0.25 },
+  { ratio: '88/81',  cents: 143.50, name: 'минимальный тон (Хрисанф)', weight: 0.30 },
+  { ratio: '12/11',  cents: 150.64, name: 'ундецимальная нейтральная секунда', weight: 0.35 },
+  { ratio: '11/10',  cents: 165.00, name: 'ундецимальная большая секунда', weight: 0.35 },
+  { ratio: '10/9',   cents: 182.40, name: 'малая целотонная секунда', weight: 0.50 },
+  { ratio: '9/8',    cents: 203.91, name: 'большая секунда', weight: 0.60 },
+  { ratio: '8/7',    cents: 231.17, name: 'септикальная большая секунда', weight: 0.40 },
+  { ratio: '15/13',  cents: 247.74, name: 'тридецимальная секунда', weight: 0.25 },
+  { ratio: '7/6',    cents: 266.87, name: 'септикальная малая терция', weight: 0.50 },
+  { ratio: '75/64',  cents: 274.58, name: 'малая диеса (Циммерман)', weight: 0.20 },
+  { ratio: '13/11',  cents: 289.21, name: 'тридецимальная нейтральная терция', weight: 0.30 },
+  { ratio: '32/27',  cents: 294.13, name: 'пифагорейская малая терция', weight: 0.40 },
+  { ratio: '6/5',    cents: 315.64, name: 'малая терция', weight: 1.00 },
+  { ratio: '11/9',   cents: 347.41, name: 'ундецимальная нейтральная терция', weight: 0.40 },
+  { ratio: '27/22',  cents: 354.55, name: 'византийская большая терция (Раст)', weight: 0.40 },
+  { ratio: '26/21',  cents: 369.75, name: 'тридецимальная большая терция', weight: 0.25 },
+  { ratio: '5/4',    cents: 386.31, name: 'большая терция', weight: 1.00 },
+  { ratio: '81/64',  cents: 407.82, name: 'пифагорейская большая терция', weight: 0.40 },
+  { ratio: '14/11',  cents: 417.51, name: 'ундецимальная большая терция', weight: 0.30 },
+  { ratio: '9/7',    cents: 435.08, name: 'септикальная большая терция', weight: 0.50 },
+  { ratio: '22/17',  cents: 442.49, name: 'ундецимальная нейтральная терция (обр.)', weight: 0.25 },
+  { ratio: '13/10',  cents: 454.21, name: 'тридецимальная большая терция', weight: 0.30 },
+  { ratio: '21/16',  cents: 470.78, name: 'септикальная кварта', weight: 0.30 },
+  { ratio: '4/3',    cents: 498.04, name: 'кварта', weight: 1.00 },
+  { ratio: '27/20',  cents: 519.55, name: 'пифагорейская увеличенная кварта', weight: 0.20 },
+  { ratio: '15/11',  cents: 536.95, name: 'ундецимальная кварта', weight: 0.30 },
+  { ratio: '11/8',   cents: 551.32, name: 'ундецимальный тритон', weight: 0.50 },
+  { ratio: '18/13',  cents: 563.38, name: 'тридецимальная кварта', weight: 0.25 },
+  { ratio: '25/18',  cents: 568.72, name: 'ундецимальная увеличенная кварта', weight: 0.30 },
+  { ratio: '7/5',    cents: 582.51, name: 'септикальный тритон', weight: 0.50 },
+  { ratio: '10/7',   cents: 617.49, name: 'септикальный тритон (обр.)', weight: 0.50 },
+  { ratio: '36/25',  cents: 631.28, name: 'тридецимальная уменьшённая квинта', weight: 0.20 },
+  { ratio: '13/9',   cents: 636.62, name: 'тридецимальный тритон', weight: 0.30 },
+  { ratio: '16/11',  cents: 648.68, name: 'ундецимальная кварта (обр.)', weight: 0.30 },
+  { ratio: '3/2',    cents: 701.96, name: 'квинта', weight: 1.50 },
+  { ratio: '14/9',   cents: 764.92, name: 'септикальная малая секста', weight: 0.30 },
+  { ratio: '25/16',  cents: 772.63, name: 'малая диеса (Циммерман)', weight: 0.20 },
+  { ratio: '11/7',   cents: 782.49, name: 'ундецимальная квинта (обр.)', weight: 0.40 },
+  { ratio: '8/5',    cents: 813.69, name: 'малая секста', weight: 0.80 },
+  { ratio: '21/13',  cents: 830.25, name: 'тридецимальная секста', weight: 0.25 },
+  { ratio: '13/8',   cents: 840.53, name: 'тридецимальная нейтральная секста', weight: 0.40 },
+  { ratio: '18/11',  cents: 852.59, name: 'византийская секста', weight: 0.40 },
+  { ratio: '5/3',    cents: 884.36, name: 'большая секста', weight: 0.80 },
+  { ratio: '27/16',  cents: 905.87, name: 'пифагорейская большая секста', weight: 0.40 },
+  { ratio: '22/13',  cents: 910.79, name: 'тридецимальная секста (обр.)', weight: 0.25 },
+  { ratio: '12/7',   cents: 933.13, name: 'септикальная большая секста', weight: 0.40 },
+  { ratio: '125/72', cents: 955.03, name: 'ундецимальная уменьшённая септима', weight: 0.20 },
+  { ratio: '7/4',    cents: 968.83, name: 'гармоническая септима', weight: 0.60 },
+  { ratio: '16/9',   cents: 996.09, name: 'пифагорейская малая септима', weight: 0.40 },
+  { ratio: '9/5',    cents: 1017.60, name: 'малая септима', weight: 0.50 },
+  { ratio: '11/6',   cents: 1049.36, name: 'ундецимальная нейтральная септима', weight: 0.35 },
+  { ratio: '24/13',  cents: 1054.21, name: 'тридецимальная малая септима', weight: 0.25 },
+  { ratio: '15/8',   cents: 1088.27, name: 'большая септима', weight: 0.40 },
+  { ratio: '13/7',   cents: 1091.15, name: 'тридецимальная большая септима', weight: 0.30 },
+  { ratio: '21/11',  cents: 1119.46, name: 'ундецимальная большая септима', weight: 0.25 },
+  { ratio: '27/14',  cents: 1137.04, name: 'ундецимальная большая септима (обр.)', weight: 0.20 },
+  { ratio: '125/64', cents: 1158.94, name: 'малая диеса (Циммерман)', weight: 0.20 }
+];
+PURE_INTERVALS.sort((a, b) => a.cents - b.cents);
+
+function findPureByCents(c, tol = 20) {
+  let best = null;
+  for (const p of PURE_INTERVALS) {
+    const d = Math.abs(p.cents - c);
+    if (d < tol && (!best || d < best.d)) best = { ...p, d };
+  }
+  return best;
+}
+function findNameByCents(c, tol = 4, raw = null) {
+  if (raw) {
+    const ex = PURE_INTERVALS.find(p => p.ratio === raw);
+    if (ex) return ex.name;
+  }
+  const pi = findPureByCents(c, tol);
+  return pi ? pi.name : null;
+}
+
+// ===================== Модель =====================
+function plompLevelt(f1, f2, a1, a2) {
+  const fmin = Math.min(f1, f2);
+  const s = 0.24 / (0.0207 * fmin + 18.96);
+  const x = s * Math.abs(f2 - f1);
+  return Math.abs(a1 * a2) * (Math.exp(-3.51 * x) - Math.exp(-5.75 * x));
+}
+function totalDissonance(s1, s2) {
+  let sum = 0;
+  for (const p1 of s1) for (const p2 of s2) sum += plompLevelt(p1.freq, p2.freq, p1.amp, p2.amp);
+  return sum;
+}
+
+// ===================== Пресеты =====================
+const INSTRUMENT_PRESETS = {
+  clarinet: { name: 'Кларнет', amps: [0, 1, 0, 0.55, 0, 0.75, 0, 0.55, 0, 0.38, 0, 0.25, 0, 0.16, 0, 0.10] },
+  oboe: { name: 'Гобой', amps: [0, 1, 0.45, 0.55, 0.72, 0.85, 0.78, 0.62, 0.50, 0.36, 0.26, 0.18, 0.12, 0.08, 0.05] },
+  flute: { name: 'Флейта', amps: [0, 1, 0.15, 0.08, 0.04, 0.02, 0.015, 0.01, 0.005] },
+  trumpet: { name: 'Труба', amps: [0, 1, 0.80, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65, 0.55, 0.46, 0.38, 0.32, 0.27, 0.22, 0.18] },
+  accordion: { name: 'Аккордеон', amps: [0, 1.0, 0.55, 0.35, 0.22, 0.15, 0.10, 0.06, 0.05, 0.03, 0.02, 0.01] },
+  harmonica: { name: 'Губная гармошка', amps: [0, 1.0, 0.7, 0.55, 0.45, 0.35, 0.28, 0.22, 0.18, 0.14, 0.11, 0.08] },
+  pipe_organ: { name: 'Орган трубный', amps: [0, 1.0, 0.7, 0.6, 0.5, 0.3, 0.4, 0.2, 0.35, 0.15, 0.25, 0.1, 0.2, 0.1, 0.15, 0.08] },
+  violin: { name: 'Скрипка', amps: [0, 1, 0.70, 0.65, 0.60, 0.55, 0.52, 0.49, 0.47, 0.48, 0.52, 0.47, 0.42, 0.37, 0.32, 0.27, 0.23] },
+  cello: { name: 'Виолончель', amps: [0, 1.0, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.25, 0.2, 0.15, 0.12, 0.1, 0.08, 0.06, 0.04] },
+  acoustic_guitar: { name: 'Гитара акустическая', amps: [0, 1, 0.6, 0.8, 0.4, 0.5, 0.3, 0.35, 0.2, 0.22, 0.15, 0.12, 0.1, 0.08, 0.06, 0.04] },
+  electric_guitar: { name: 'Гитара электро', amps: [0, 1, 0.8, 0.6, 0.7, 0.5, 0.55, 0.4, 0.45, 0.35, 0.3, 0.25, 0.2, 0.15, 0.1, 0.08] },
+  harpsichord: { name: 'Харпсихорд', amps: [0, 1.0, 0.7, 0.6, 0.5, 0.45, 0.4, 0.35, 0.3, 0.25, 0.22, 0.18, 0.15, 0.12, 0.1, 0.08] },
+  piano: { name: 'Фортепиано', amps: [0, 1, 0.5, 0.7, 0.3, 0.4, 0.2, 0.25, 0.15, 0.18, 0.1, 0.12, 0.08, 0.06, 0.05, 0.04] },
+  rhodes: { name: 'Rhodes', amps: [0, 1.0, 0.3, 0.6, 0.2, 0.45, 0.1, 0.35, 0.08, 0.25, 0.05, 0.18, 0.04, 0.12, 0.03, 0.08] },
+  electric_bass: { name: 'Бас-гитара', amps: [0, 1.0, 0.45, 0.25, 0.15, 0.10, 0.06, 0.04, 0.03, 0.02, 0.01, 0.01] },
+  tubular_bell: { name: 'Колокол', amps: [0, 1.0, 0.3, 0.4, 0.2, 0.35, 0.15, 0.55, 0.1, 0.25, 0.1, 0.45, 0.08, 0.4, 0.05, 0.2] },
+  crystal: { name: 'Стекло', amps: [0, 1.0, 0.1, 0.2, 0.1, 0.35, 0.1, 0.4, 0.05, 0.15, 0.05, 0.5, 0.04, 0.45, 0.03, 0.1] },
+  spectral_pad: { name: 'Спектральный пэд', amps: [0, 1.0, 0.4, 0.5, 0.3, 0.5, 0.3, 0.55, 0.25, 0.5, 0.25, 0.5, 0.2, 0.5, 0.15, 0.4] },
+  voice: { name: 'Голос', amps: [0, 1.00, 0.65, 0.40, 0.30, 0.55, 0.60, 0.42, 0.32, 0.28, 0.48, 0.38, 0.28, 0.20, 0.15, 0.11] },
+  male_academic: { name: 'Муж. академический', amps: [0, 1, 0.7, 0.3, 0.2, 0.6, 0.8, 0.5, 0.3, 0.2, 0.1, 0.05, 0.03, 0.02, 0.01] },
+  female_academic: { name: 'Жен. академический', amps: [0, 1, 0.6, 0.2, 0.15, 0.4, 0.7, 0.6, 0.4, 0.2, 0.1, 0.05, 0.03, 0.02, 0.01] },
+  male_folk: { name: 'Муж. народный', amps: [0, 1, 0.8, 0.6, 0.4, 0.5, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.05, 0.03, 0.02] },
+  female_folk: { name: 'Жен. народный', amps: [0, 1, 0.7, 0.5, 0.3, 0.4, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.05, 0.03, 0.02] },
+  male_pop: { name: 'Муж. эстрадный', amps: [0, 1, 0.5, 0.3, 0.2, 0.4, 0.6, 0.4, 0.3, 0.2, 0.15, 0.1, 0.05, 0.03, 0.02] },
+  female_pop: { name: 'Жен. эстрадный', amps: [0, 1, 0.4, 0.2, 0.15, 0.3, 0.5, 0.3, 0.2, 0.15, 0.1, 0.05, 0.03, 0.02] },
+  overtone_voice: { name: 'Обертональный голос', amps: [0, 1.0, 0.2, 0.3, 0.15, 0.4, 0.1, 0.6, 0.1, 0.35, 0.1, 0.55, 0.08, 0.5, 0.05, 0.25] }
+};
+const SYNTH_PRESETS = {
+  saw: { name: 'Пила' }, square: { name: 'Квадрат' }, triangle: { name: 'Треугольник' },
+  soft: { name: 'Мягкий' }, bright: { name: 'Яркий' }
+};
+const PRESET_CATEGORIES = [
+  { name: 'Синтетические', ids: ['saw', 'square', 'triangle', 'soft', 'bright'] },
+  { name: 'Духовые', ids: ['clarinet', 'oboe', 'flute', 'trumpet'] },
+  { name: 'Язычковые и орган', ids: ['accordion', 'harmonica', 'pipe_organ'] },
+  { name: 'Струнные', ids: ['violin', 'cello', 'acoustic_guitar', 'electric_guitar', 'harpsichord'] },
+  { name: 'Клавишные', ids: ['piano', 'rhodes'] },
+  { name: 'Электроника', ids: ['electric_bass', 'tubular_bell', 'crystal', 'spectral_pad'] },
+  { name: 'Голоса', ids: ['voice', 'male_academic', 'female_academic', 'male_folk', 'female_folk', 'male_pop', 'female_pop', 'overtone_voice'] },
+];
+
+function getPresetAmps(id) {
+  const amps = new Array(41).fill(0);
+  if (INSTRUMENT_PRESETS[id]) {
+    const src = INSTRUMENT_PRESETS[id].amps;
+    for (let i = 1; i < src.length; i++) amps[i] = src[i];
+  } else if (id === 'saw') { for (let i = 1; i <= 40; i++) amps[i] = 1 / i; }
+  else if (id === 'square') { for (let i = 1; i <= 40; i += 2) amps[i] = 1 / i; }
+  else if (id === 'triangle') { for (let i = 1; i <= 40; i += 2) amps[i] = 1 / (i * i); }
+  else if (id === 'soft') { for (let i = 1; i <= 40; i++) amps[i] = 1 / (i * i); }
+  else if (id === 'bright') { for (let i = 1; i <= 40; i++) amps[i] = 1; }
+  return amps;
+}
+function getPresetName(id) {
+  if (INSTRUMENT_PRESETS[id]) return INSTRUMENT_PRESETS[id].name;
+  if (SYNTH_PRESETS[id]) return SYNTH_PRESETS[id].name;
+  return id;
+}
+function getTimbrePresets() {
+  try { return JSON.parse(localStorage.getItem(LS_TIMBRE_KEY) || '{}'); } catch { return {}; }
+}
+function saveTimbrePresets(p) {
+  try { localStorage.setItem(LS_TIMBRE_KEY, JSON.stringify(p)); return true; } catch { return false; }
+}
+function getSettingsPresets() {
+  try { return JSON.parse(localStorage.getItem(LS_SETTINGS_KEY) || '{}'); } catch { return {}; }
+}
+function saveSettingsPresets(p) {
+  try { localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(p)); return true; } catch { return false; }
+}
+
+// ===================== Профили и режим =====================
+let profiles = {
+  A: { amps: getPresetAmps('saw'), name: 'Пила' },
+  B: { amps: getPresetAmps('saw'), name: 'Пила' }
+};
+let activeProfile = 'A';
+let currentHarmonicsVal = 13;
+let mode = 'analysis';
+let analysisCurve = null;
+let analysisIntervals = [];
+let analysisEdo = null;
+
+function getActiveAmps() { return profiles[activeProfile].amps; }
+function getCurrentHarmonics() { return currentHarmonicsVal; }
+
+function setActiveProfile(p) {
+  activeProfile = p;
+  document.getElementById('btnProfileA').classList.toggle('active', p === 'A');
+  document.getElementById('btnProfileB').classList.toggle('active', p === 'B');
+  document.getElementById('profileBName').textContent = p === 'B' ? profiles.B.name : document.getElementById('profileBName').textContent;
+  buildSliders(currentHarmonicsVal);
+  updateCurrentWaveSvg();
+  scheduleCurveUpdate();
+  touchInvalidateD0();
+  touchUpdateWaves();
+}
+
+// ===================== Переключение режима =====================
+function setMode(newMode) {
+  if (mode === newMode) return;
+  mode = newMode;
+  const btn = document.getElementById('modeToggleBtn');
+  const title = document.getElementById('curveTitle');
+  const infoRow = document.getElementById('touchChordInfo');
+
+  if (mode === 'touch') {
+    document.body.classList.add('touch-mode');
+    btn.textContent = '📈 Режим анализа';
+    btn.style.background = '#ef6c00';
+    title.textContent = '🎹 Сенсорный синтезатор';
+    infoRow.style.display = 'block';
+    for (const id of [...touchNotes.keys()]) touchRemoveNote(id);
+    touchInvalidateD0();
+    touchBuildD0();
+    setTimeout(renderCurrentCanvas, 50);
+    setTimeout(renderCurrentCanvas, 200);
+  } else {
+    document.body.classList.remove('touch-mode');
+    btn.textContent = '🎹 Режим игры';
+    btn.style.background = '#1565c0';
+    title.textContent = '📈 Кривая диссонанса Сетареса';
+    infoRow.style.display = 'none';
+    for (const id of [...touchNotes.keys()]) touchRemoveNote(id);
+    updateCurve();
+  }
+}
+
+function renderCurrentCanvas() {
+  if (mode === 'touch') {
+    drawTouchCanvas();
+  } else if (analysisCurve) {
+    drawMainCurve(analysisCurve, analysisIntervals, analysisEdo);
+  }
+}
+
+// ===================== Ползунки =====================
+function buildSliders(count) {
+  const container = document.getElementById('slidersContainer');
+  container.innerHTML = '';
+  const amps = getActiveAmps();
+  for (let i = 1; i <= count; i++) {
+    const div = document.createElement('div');
+    div.className = 'harmonic-slider';
+    const val = amps[i] || 0;
+    div.innerHTML = `
+      <div class="slider-track">
+        <input type="range" min="0" max="1" step="0.01" value="${val}" data-h="${i}">
+      </div>
+      <div class="slider-num">${i}</div>
+      <div class="slider-val" data-val="${i}">${val.toFixed(2)}</div>`;
+    container.appendChild(div);
+    const input = div.querySelector('input');
+    const valLabel = div.querySelector('.slider-val');
+    input.addEventListener('input', (e) => {
+      const v = parseFloat(e.target.value);
+      amps[i] = v;
+      valLabel.textContent = v.toFixed(2);
+      profiles[activeProfile].name = 'Своя форма';
+      if (activeProfile === 'B') document.getElementById('profileBName').textContent = 'Своя форма';
+      updateCurrentWaveSvg();
+      scheduleCurveUpdate();
+      touchInvalidateD0();
+      touchUpdateWaves();
+    });
+  }
+}
+
+// ===================== SVG =====================
+function wavePath(harmonics, samples = 100, w = 60, h = 28) {
+  const src = getActiveAmps();
+  const amps = [0];
+  for (let n = 1; n <= harmonics; n++) amps.push(src[n] || 0);
+  const pts = [];
+  for (let i = 0; i <= samples; i++) {
+    const t = (i / samples) * 2 * Math.PI;
+    let y = 0;
+    for (let n = 1; n < amps.length; n++) y += (amps[n] || 0) * Math.sin(n * t);
+    pts.push(y);
+  }
+  const max = Math.max(...pts.map(Math.abs)) || 1;
+  return pts.map((y, i) => {
+    const x = (i / samples) * w;
+    const yy = h / 2 - (y / max) * (h / 2 - 2);
+    return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${yy.toFixed(1)}`;
+  }).join(' ');
+}
+function updateCurrentWaveSvg() {
+  document.getElementById('currentWavePath').setAttribute('d', wavePath(currentHarmonicsVal));
+}
+
+// ===================== Число гармоник =====================
+function syncHarmonics(v) {
+  const val = Math.max(2, Math.min(40, parseInt(v) || 13));
+  currentHarmonicsVal = val;
+  document.getElementById('harmonics').value = val;
+  document.getElementById('harmonicsRange').value = val;
+  buildSliders(val);
+  scheduleCurveUpdate();
+  touchInvalidateD0();
+  touchUpdateWaves();
+  if (mode === 'touch') {
+    touchBuildD0();
+  }
+}
+function setupHarmonicsControl() {
+  const numEl = document.getElementById('harmonics');
+  const rangeEl = document.getElementById('harmonicsRange');
+  numEl.addEventListener('input', () => syncHarmonics(numEl.value));
+  rangeEl.addEventListener('input', () => syncHarmonics(rangeEl.value));
+  [numEl, rangeEl].forEach(el => el.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    syncHarmonics((parseInt(el.value) || 13) + (e.deltaY < 0 ? 1 : -1));
+  }, { passive: false }));
+}
+
+// ===================== Preset picker =====================
+function buildPresetGrid() {
+  const grid = document.getElementById('presetGrid');
+  grid.innerHTML = '';
+  PRESET_CATEGORIES.forEach(cat => {
+    const catEl = document.createElement('div');
+    catEl.className = 'preset-category';
+    catEl.textContent = cat.name;
+    grid.appendChild(catEl);
+    cat.ids.forEach(id => {
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'preset-item'; btn.textContent = getPresetName(id);
+      btn.onclick = () => { loadPresetToActive(id); togglePresetPanel(false); };
+      grid.appendChild(btn);
+    });
+  });
+  const userKeys = Object.keys(getTimbrePresets());
+  if (userKeys.length > 0) {
+    const catEl = document.createElement('div');
+    catEl.className = 'preset-category';
+    catEl.textContent = 'Пользовательские';
+    grid.appendChild(catEl);
+    userKeys.forEach(name => {
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'preset-item'; btn.textContent = name;
+      btn.onclick = () => { loadPresetToActive('user:' + name); togglePresetPanel(false); };
+      grid.appendChild(btn);
+    });
+  }
+}
+function togglePresetPanel(show) {
+  const panel = document.getElementById('presetPickerPanel');
+  if (show) { buildPresetGrid(); panel.classList.add('open'); } else panel.classList.remove('open');
+}
+function loadPresetToActive(id) {
+  let amps, name;
+  if (id.startsWith('user:')) { const n = id.substring(5); amps = getTimbrePresets()[n]?.amps; name = n; }
+  else if (SYNTH_PRESETS[id] || INSTRUMENT_PRESETS[id]) { amps = getPresetAmps(id); name = getPresetName(id); }
+  else return;
+  if (!amps) return;
+  profiles[activeProfile].amps = [...amps];
+  profiles[activeProfile].name = name;
+  if (activeProfile === 'B') document.getElementById('profileBName').textContent = name;
+  buildSliders(currentHarmonicsVal);
+  updateCurrentWaveSvg();
+  scheduleCurveUpdate();
+  touchInvalidateD0();
+  touchUpdateWaves();
+  if (mode === 'touch') touchBuildD0();
+  showToast(`Загружен «${name}» в ${activeProfile}`);
+}
+
+// ===================== Кривая анализа =====================
+function scheduleCurveUpdate() {
+  requestAnimationFrame(() => {
+    if (mode === 'analysis') updateCurve();
+  });
+}
+function computeCurve(spec, stepCents = 2) {
+  const pts = [];
+  for (let c = 0; c <= 1200; c += stepCents) {
+    const shifted = spec.map(p => ({ freq: p.freq * Math.pow(2, c / 1200), amp: p.amp }));
+    pts.push({ cents: c, d: totalDissonance(spec, shifted) });
+  }
+  return pts;
+}
+function updateCurve() {
+  const parsed = document.getElementById('intervals').value.split('\n').map(parseInterval).filter(Boolean);
+  if (parsed.length === 0) return;
+  const harm = currentHarmonicsVal;
+  const amps = getActiveAmps();
+  const spec = [];
+  for (let i = 1; i <= harm; i++) if (amps[i] > 0.001) spec.push({ freq: BASE_FREQ * i, amp: amps[i] });
+  if (spec.length === 0) return;
+  const curve = computeCurve(spec);
+  const edoVal = parseInt(document.getElementById('demoEdo').value) || null;
+  analysisCurve = curve;
+  analysisIntervals = parsed;
+  analysisEdo = edoVal;
+  if (mode === 'analysis') drawMainCurve(curve, parsed, edoVal);
+  document.getElementById('curveHint').textContent = `Форма: ${profiles[activeProfile].name}. Партиалов: ${spec.length}.` + (edoVal ? ` Синие — ${edoVal}-EDO.` : '');
+  updateCurrentWaveSvg();
+}
+
+function drawMainCurve(curve, intervals, edoToShow) {
+  const canvas = document.getElementById('curveCanvas');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width < 10) return;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const pad = CURVE_PAD;
+  const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
+  ctx.clearRect(0, 0, W, H);
+  const maxD = Math.max(...curve.map(p => p.d));
+  const minD = Math.min(...curve.map(p => p.d));
+  const range = maxD - minD || 1;
+  const norm = v => (v - minD) / range;
+  ctx.fillStyle = '#f5f9f5'; ctx.fillRect(pad.l, pad.t, pw, ph);
+  ctx.strokeStyle = '#d0e4d0'; ctx.lineWidth = 1;
+  ctx.font = '11px sans-serif'; ctx.fillStyle = '#5a6e5a'; ctx.textAlign = 'center';
+  for (let c = 0; c <= 1200; c += 100) {
+    const x = pad.l + (c / 1200) * pw;
+    ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + ph); ctx.stroke();
+    ctx.fillText(c, x, pad.t + ph + 16);
+  }
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + ph - (i / 4) * ph;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + pw, y); ctx.stroke();
+  }
+  if (edoToShow) {
+    ctx.strokeStyle = 'rgba(21,101,192,0.25)'; ctx.setLineDash([3,3]);
+    for (let i = 1; i < edoToShow; i++) {
+      const c = i * (1200 / edoToShow); if (c > 1200) break;
+      const x = pad.l + (c / 1200) * pw;
+      ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + ph); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+  ctx.fillStyle = '#1a2e1a';
+  ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('Интервал, центов', pad.l + pw / 2, H - 8);
+  ctx.save();
+  ctx.translate(14, pad.t + ph / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillText('Диссонанс', 0, 0); ctx.restore();
+  ctx.strokeStyle = '#2e7d32'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  curve.forEach((p, i) => {
+    const x = pad.l + (p.cents / 1200) * pw;
+    const y = pad.t + ph - norm(p.d) * ph;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.lineTo(pad.l + pw, pad.t + ph); ctx.lineTo(pad.l, pad.t + ph); ctx.closePath();
+  ctx.fillStyle = 'rgba(46,125,50,0.08)'; ctx.fill();
+  intervals.forEach(it => {
+    if (it.cents < 0 || it.cents > 1200) return;
+    const x = pad.l + (it.cents / 1200) * pw;
+    const dVal = curve[Math.round(it.cents / 2)]?.d || 0;
+    const relD = (dVal - minD) / range;
+    const hue = 120 * (1 - relD);
+    const col = `hsl(${hue}, 75%, 40%)`;
+    ctx.strokeStyle = col; ctx.lineWidth = 1.5 + Math.min(1.5, (it.weight - 1) * 1.2);
+    ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + ph); ctx.stroke();
+    ctx.setLineDash([]);
+    const y = pad.t + ph - norm(dVal) * ph;
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = col; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
+    ctx.save(); ctx.translate(x, pad.t + 14); ctx.rotate(-Math.PI / 2);
+    ctx.fillText(it.raw, 0, 0); ctx.restore();
+  });
+  if (edoToShow) {
+    const step = 1200 / edoToShow;
+    ctx.fillStyle = 'rgba(21,101,192,0.6)';
+    for (let i = 1; i < edoToShow; i++) {
+      const c = i * step; if (c > 1200) break;
+      const x = pad.l + (c / 1200) * pw;
+      const np = curve.reduce((b, p) => Math.abs(p.cents - c) < Math.abs(b.cents - c) ? p : b);
+      const y = pad.t + ph - norm(np.d) * ph;
+      ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+}
+
+// ===================== Аудио =====================
+let audioCtx = null;
+function getCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+function configureOscillator(osc, harmonics) {
+  const ctx = getCtx();
+  const amps = getActiveAmps();
+  const n = harmonics;
+  const real = new Float32Array(n + 1);
+  const imag = new Float32Array(n + 1);
+  for (let i = 1; i <= n; i++) if (amps[i] > 0) imag[i] = amps[i];
+  osc.setPeriodicWave(ctx.createPeriodicWave(real, imag, { disableNormalization: false }));
+}
+function playRatio(ratio, dur = 1.6, includeDiff = false) {
+  const ctx = getCtx();
+  const harm = currentHarmonicsVal;
+  const now = ctx.currentTime;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(0.11, now + 0.02);
+  gain.gain.setValueAtTime(0.11, now + dur - 0.1);
+  gain.gain.linearRampToValueAtTime(0, now + dur);
+  gain.connect(ctx.destination);
+  const f1 = BASE_FREQ;
+  const f2 = BASE_FREQ * ratio;
+  [1, ratio].forEach(r => {
+    const osc = ctx.createOscillator();
+    configureOscillator(osc, harm);
+    osc.frequency.value = BASE_FREQ * r;
+    osc.connect(gain);
+    osc.start(now);
+    osc.stop(now + dur);
+  });
+  if (includeDiff) {
+    let diff = Math.abs(f2 - f1);
+    while (diff < 30) diff *= 2;
+    if (diff < 20000) {
+      const diffOsc = ctx.createOscillator();
+      diffOsc.type = 'sine';
+      diffOsc.frequency.value = diff;
+      const diffGain = ctx.createGain();
+      diffGain.gain.setValueAtTime(0, now);
+      diffGain.gain.linearRampToValueAtTime(0.08, now + 0.02);
+      diffGain.gain.setValueAtTime(0.08, now + dur - 0.1);
+      diffGain.gain.linearRampToValueAtTime(0, now + dur);
+      diffOsc.connect(diffGain);
+      diffGain.connect(ctx.destination);
+      diffOsc.start(now);
+      diffOsc.stop(now + dur);
+    }
+  }
+}
+function playInterval(cents, dur = 1.6) {
+  const includeDiff = document.getElementById('showCombTone').checked;
+  playRatio(centsToRatio(cents), dur, includeDiff);
+}
+
+// ===================== Парсинг =====================
+function parseInterval(line) {
+  let raw = line.trim();
+  if (!raw) return null;
+  raw = raw.replace(/\s+—\s+.*$/, '').trim();
+  if (raw.includes(':')) {
+    const parts = raw.split(':');
+    if (parts.length >= 2 && !parts[0].match(/\d/)) raw = parts.slice(1).join(':').trim();
+  }
+  if (!raw) return null;
+  let weight = 1.0;
+  let body = raw;
+  const wm = body.match(/[*@]\s*([\d.]+)\s*$/);
+  if (wm) { const w = parseFloat(wm[1]); if (!isNaN(w)) weight = w; body = body.substring(0, wm.index).trim(); }
+  let cents;
+  if (body.includes('/')) {
+    const [num, den] = body.split('/').map(parseFloat);
+    if (isNaN(num) || isNaN(den) || den === 0) return null;
+    cents = ratioToCents(num / den);
+  } else {
+    cents = parseFloat(body);
+    if (isNaN(cents)) return null;
+  }
+  return { cents, raw: body, weight };
+}
+function formatWithNames() {
+  const ta = document.getElementById('intervals');
+  const lines = ta.value.split('\n');
+  ta.value = lines.map(line => {
+    const body = line.replace(/\s+—\s+.*$/, '').trim();
+    if (!body) return '';
+    const p = parseInterval(body);
+    if (!p) return body;
+    const name = findNameByCents(p.cents, 4, p.raw);
+    return name ? `${body} — ${name}` : body;
+  }).join('\n');
+}
+function entriesFromTextarea(text) {
+  const out = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    const p = parseInterval(line);
+    if (!p) { out.push({ unparseable: true, raw_line: line, cents: Infinity, weight: 1, raw: null }); continue; }
+    out.push({ raw: p.raw, cents: p.cents, weight: p.weight });
+  }
+  return out;
+}
+function rebuildTextarea(entries) {
+  return entries.map(e => e.unparseable ? e.raw_line : (e.raw + (e.weight !== 1 ? ` *${e.weight}` : ''))).join('\n');
+}
+
+// ===================== Клики по canvas (analysis) =====================
+function canvasClickToCents(e) {
+  const canvas = document.getElementById('curveCanvas');
+  const rect = canvas.getBoundingClientRect();
+  const pw = rect.width - CURVE_PAD.l - CURVE_PAD.r;
+  const x = e.clientX - rect.left - CURVE_PAD.l;
+  if (x < 0 || x > pw) return null;
+  return (x / pw) * 1200;
+}
+function addIntervalAtCents(cents, tol = 25) {
+  const pi = findPureByCents(cents, tol);
+  if (!pi) { showToast(`Рядом с ${cents.toFixed(0)}¢ нет чистого интервала`, 'error'); return; }
+  const ta = document.getElementById('intervals');
+  const entries = entriesFromTextarea(ta.value);
+  if (entries.find(e => !e.unparseable && Math.abs(e.cents - pi.cents) < 3)) {
+    showToast(`${pi.ratio} — ${pi.name} уже есть`, 'info'); return;
+  }
+  entries.push({ raw: pi.ratio, cents: pi.cents, weight: pi.weight });
+  entries.sort((a, b) => a.cents - b.cents);
+  ta.value = rebuildTextarea(entries);
+  formatWithNames();
+  runCalculation();
+  showToast(`Добавлен ${pi.ratio} — ${pi.name}`);
+}
+function removeIntervalAtCents(cents, tol = 25) {
+  const ta = document.getElementById('intervals');
+  const entries = entriesFromTextarea(ta.value);
+  let bestIdx = -1, bestDev = tol;
+  entries.forEach((e, i) => {
+    if (e.unparseable) return;
+    const dev = Math.abs(e.cents - cents);
+    if (dev < bestDev) { bestDev = dev; bestIdx = i; }
+  });
+  if (bestIdx < 0) { showToast(`Рядом с ${cents.toFixed(0)}¢ нет интервала`, 'error'); return; }
+  const removed = entries[bestIdx];
+  entries.splice(bestIdx, 1);
+  ta.value = rebuildTextarea(entries);
+  formatWithNames();
+  runCalculation();
+  showToast(`Удалён ${removed.raw}`);
+}
+function playIntervalAtCents(cents) {
+  playInterval(cents, 1.4);
+  const pi = findPureByCents(cents, 4);
+  showToast(`▶ ${Math.round(cents)}¢` + (pi ? ` — ${pi.name}` : ''), 'info');
+}
+
+// ===================== Расчёт EDO =====================
+function searchEDO(intervals, tol, minEdo, maxEdo) {
+  const out = [];
+  const totalW = intervals.reduce((s, it) => s + it.weight, 0) || 1;
+  for (let edo = minEdo; edo <= maxEdo; edo++) {
+    const step = 1200 / edo;
+    const matches = [];
+    let maxDev = 0, sumWDev = 0;
+    for (const it of intervals) {
+      const k = Math.round(it.cents / step);
+      const approx = k * step;
+      const dev = Math.abs(approx - it.cents);
+      const signedDev = approx - it.cents;
+      matches.push({ name: it.raw, target: it.cents, approx, dev, signedDev, k, ok: dev <= tol, weight: it.weight });
+      maxDev = Math.max(maxDev, dev);
+      sumWDev += dev * it.weight;
+    }
+    out.push({ edo, step, matches, maxDev, weightedAvgDev: sumWDev / totalW, matched: matches.filter(m => m.ok).length });
+  }
+  return out;
+}
+
+let allResults = [];
+let parsedIntervals = [];
+let currentSort = 'match';
+let currentTolerance = 5;
+let expandedView = false;
+let resultsCollapsed = false;
+
+function chipStyle(dev, tol) {
+  const t = Math.min(1.2, dev / tol);
+  const hue = Math.max(0, 120 * (1 - t));
+  return { bg: `hsl(${hue}, 65%, 88%)`, fg: `hsl(${hue}, 70%, 25%)`, miss: dev > tol };
+}
+function sortResults(r, by) {
+  const c = [...r];
+  switch (by) {
+    case 'match': c.sort((a,b) => b.matched - a.matched || a.weightedAvgDev - b.weightedAvgDev); break;
+    case 'maxAsc': c.sort((a,b) => a.maxDev - b.maxDev); break;
+    case 'avgAsc': c.sort((a,b) => a.weightedAvgDev - b.weightedAvgDev); break;
+    case 'edoAsc': c.sort((a,b) => a.edo - b.edo); break;
+    case 'edoDesc': c.sort((a,b) => b.edo - a.edo); break;
+  }
+  return c;
+}
+function renderTable(showAll) {
+  const tbody = document.querySelector('#resultsTable tbody');
+  tbody.innerHTML = '';
+  const sorted = sortResults(allResults, currentSort);
+  const toShow = showAll ? sorted : sorted.slice(0, 25);
+  toShow.forEach((r, idx) => {
+    const tr = document.createElement('tr');
+    if (idx === 0 && currentSort === 'match') tr.className = 'best';
+    const chips = r.matches.map(m => {
+      const s = chipStyle(m.dev, currentTolerance);
+      const cls = 'interval-chip' + (s.miss ? ' miss' : '');
+      const sign = m.signedDev >= 0 ? '+' : '';
+      const wTxt = m.weight !== 1 ? ` w=${m.weight}` : '';
+      return `<span class="${cls}" style="background:${s.bg};color:${s.fg};" title="цель ${m.target.toFixed(1)}¢ → ${m.approx.toFixed(1)}¢ (откл. ${sign}${m.signedDev.toFixed(2)}¢)${wTxt}">${m.name}</span>`;
+    }).join('');
+    tr.innerHTML = `<td><strong>${r.edo}</strong></td><td>${r.matched} / ${parsedIntervals.length}</td><td>${r.maxDev.toFixed(2)} ¢</td><td>${r.weightedAvgDev.toFixed(2)} ¢</td><td>${chips}</td>`;
+    tbody.appendChild(tr);
+  });
+  document.getElementById('expandRow').style.display = sorted.length > 25 ? 'block' : 'none';
+  document.getElementById('expandBtn').textContent = expandedView ? 'Свернуть' : `Показать все (${sorted.length})`;
+}
+
+function runCalculation() {
+  formatWithNames();
+  const tol = parseFloat(document.getElementById('tolerance').value);
+  const minE = parseInt(document.getElementById('minEdo').value);
+  const maxE = parseInt(document.getElementById('maxEdo').value);
+  currentTolerance = tol;
+  parsedIntervals = document.getElementById('intervals').value.split('\n').map(parseInterval).filter(Boolean);
+  if (parsedIntervals.length === 0) { showToast('Введите хотя бы один интервал', 'error'); return; }
+  allResults = searchEDO(parsedIntervals, tol, minE, maxE);
+  const best = [...allResults].sort((a,b) => b.matched - a.matched || a.weightedAvgDev - b.weightedAvgDev)[0];
+  const allMatch = best.matched === parsedIntervals.length;
+  const hasW = parsedIntervals.some(it => it.weight !== 1);
+  const summaryEl = document.getElementById('summary');
+  const wN = hasW ? ' (с учётом весов)' : '';
+  summaryEl.innerHTML = allMatch
+    ? `<p style="color:#1b5e20;font-weight:600;">✓ ${best.edo}-EDO аппроксимирует все ${parsedIntervals.length} интервалов в пределах ${tol} центов${wN} (взвеш. ${best.weightedAvgDev.toFixed(2)} ¢).</p>`
+    : `<p style="color:#c62828;font-weight:600;">Лучший: ${best.edo}-EDO — ${best.matched} из ${parsedIntervals.length} в допуске ${tol}¢${wN} (взвеш. ${best.weightedAvgDev.toFixed(2)}¢).</p>`;
+  expandedView = false;
+  renderTable(false);
+  document.getElementById('resultsCard').style.display = 'block';
+  const edoSelect = document.getElementById('demoEdo');
+  const prev = parseInt(edoSelect.value) || null;
+  edoSelect.innerHTML = '';
+  for (let e = minE; e <= maxE; e++) {
+    const r = allResults.find(x => x.edo === e);
+    const opt = document.createElement('option');
+    opt.value = e;
+    opt.textContent = `${e}-EDO (${r ? r.matched : 0}/${parsedIntervals.length})`;
+    edoSelect.appendChild(opt);
+  }
+  edoSelect.value = (prev && prev >= minE && prev <= maxE) ? prev : best.edo;
+  updateCurve();
+  document.getElementById('demoCard').style.display = 'block';
+  const intSelect = document.getElementById('demoInterval');
+  intSelect.innerHTML = parsedIntervals.map((it, i) => {
+    const pi = findPureByCents(it.cents, 4);
+    return `<option value="${i}">${it.raw} (${it.cents.toFixed(1)}¢)${pi ? ' — ' + pi.name : ''}</option>`;
+  }).join('');
+  updateCombToneInfo();
+}
+
+// ===================== Комбинационный тон =====================
+function gcd(a, b) { return b ? gcd(b, a % b) : a; }
+function findNearestFraction(ratio, maxDen = 12, maxRatio = 16) {
+  if (!isFinite(ratio) || ratio <= 1.001) return null;
+  let best = null;
+  for (let den = 1; den <= maxDen; den++) {
+    for (let num = den + 1; num <= den * maxRatio; num++) {
+      const r = num / den;
+      const dev = Math.abs(1200 * Math.log2(r / ratio));
+      if (!best || dev < best.devCents) best = { num, den, ratio: r, devCents: dev };
+    }
+  }
+  if (best) { const g = gcd(best.num, best.den); best.num /= g; best.den /= g; }
+  return best;
+}
+function fractionFromInterval(raw) {
+  if (!raw || !raw.includes('/')) return null;
+  const [p, q] = raw.split('/').map(Number);
+  if (!isFinite(p) || !isFinite(q) || p <= q) return null;
+  const num = q, den = p - q;
+  const g = gcd(num, den);
+  return { num: num / g, den: den / g };
+}
+function describeRatio(ratio) {
+  if (!isFinite(ratio) || ratio <= 0) return '';
+  const ct = 1200 * Math.log2(ratio);
+  const oct = Math.floor(ct / 1200 + 0.001);
+  const rem = ct - oct * 1200;
+  const octD = oct === 1 ? 'октава' : oct === 2 ? 'две октавы' : oct === 3 ? 'три октавы' : oct === 4 ? 'четыре октавы' : oct > 4 ? `${oct} окт.` : '';
+  if (Math.abs(rem) < 5) return octD || 'унисон';
+  const pi = PURE_INTERVALS.find(x => Math.abs(x.cents - rem) < 5);
+  const remN = pi ? pi.name : `≈${Math.pow(2, rem / 1200).toFixed(3)}`;
+  return oct === 0 ? remN : octD + ' + ' + remN;
+}
+function updateCombToneInfo() {
+  const info = document.getElementById('combToneInfo');
+  if (!document.getElementById('showCombTone').checked) { info.classList.remove('visible'); return; }
+  const it = parsedIntervals[parseInt(document.getElementById('demoInterval').value)];
+  if (!it) { info.classList.remove('visible'); return; }
+  const edo = parseInt(document.getElementById('demoEdo').value);
+  if (!edo) { info.classList.remove('visible'); return; }
+  const f1 = BASE_FREQ;
+  const f2P = f1 * centsToRatio(it.cents);
+  const diffP = f2P - f1;
+  const rP = f1 / diffP;
+  const step = 1200 / edo;
+  const aC = Math.round(it.cents / step) * step;
+  const f2E = f1 * centsToRatio(aC);
+  const diffE = f2E - f1;
+  const rE = f1 / diffE;
+  const devC = diffP > 0 ? 1200 * Math.log2(diffE / diffP) : 0;
+  const sign = devC >= 0 ? '+' : '';
+  const frac = fractionFromInterval(it.raw);
+  let pLine;
+  if (frac) {
+    const cs = 1200 * Math.log2(frac.num / frac.den);
+    const d = describeRatio(frac.num / frac.den);
+    pLine = `<b>${it.raw}</b> чистый: f1 : разность = <span class="mono">${frac.num}/${frac.den}</span> (${cs.toFixed(0)}¢)${d ? ' — ' + d : ''}`;
+  } else {
+    pLine = `<b>${it.raw}</b>: f1 : разность = <span class="mono">≈${rP.toFixed(3)}</span> (${(1200 * Math.log2(rP)).toFixed(0)}¢)`;
+  }
+  const near = findNearestFraction(rE, 12, 16);
+  const rEc = 1200 * Math.log2(rE);
+  let eLine = `<b>${edo}-EDO</b> (${aC.toFixed(1)}¢): f1 : разность = <span class="mono">≈${rE.toFixed(3)}</span> (${rEc.toFixed(0)}¢)`;
+  if (near) {
+    const nC = 1200 * Math.log2(near.ratio);
+    const nD = nC - rEc;
+    eLine += `<br>&nbsp;&nbsp;ближайшее простое: <span class="mono">${near.num}/${near.den}</span> (${nC.toFixed(0)}¢)${describeRatio(near.ratio) ? ' — ' + describeRatio(near.ratio) : ''}, отклонение ${nD >= 0 ? '+' : ''}${nD.toFixed(1)}¢`;
+  }
+  info.innerHTML = `<div><b>Разностный тон (f2 − f1):</b></div><div>${pLine}</div><div style="margin-top:6px;">${eLine}</div><div style="margin-top:6px;">Отклонение разностного тона: <span class="dev ${devC >= 0 ? 'pos' : 'neg'}">${sign}${devC.toFixed(1)}¢</span></div>`;
+  info.classList.add('visible');
+}
+
+// ===================== Настройки =====================
+function captureCurrentSettings() {
+  return {
+    intervals: document.getElementById('intervals').value,
+    tolerance: parseFloat(document.getElementById('tolerance').value),
+    minEdo: parseInt(document.getElementById('minEdo').value),
+    maxEdo: parseInt(document.getElementById('maxEdo').value),
+    harmonics: currentHarmonicsVal,
+    profiles: JSON.parse(JSON.stringify(profiles)),
+    activeProfile: activeProfile,
+    sortBy: currentSort,
+    maxPeaks: parseInt(document.getElementById('maxPeaks').value) || 15,
+    ramoEnabled: document.getElementById('touchRamoChk').checked
+  };
+}
+function applySettings(s) {
+  if (!s) return;
+  document.getElementById('intervals').value = s.intervals || '';
+  document.getElementById('tolerance').value = s.tolerance || 5;
+  document.getElementById('minEdo').value = s.minEdo || 7;
+  document.getElementById('maxEdo').value = s.maxEdo || 72;
+  if (s.profiles) profiles = JSON.parse(JSON.stringify(s.profiles));
+  activeProfile = s.activeProfile || 'A';
+  currentHarmonicsVal = s.harmonics || 13;
+  document.getElementById('harmonics').value = currentHarmonicsVal;
+  document.getElementById('harmonicsRange').value = currentHarmonicsVal;
+  if (s.maxPeaks) document.getElementById('maxPeaks').value = s.maxPeaks;
+  if (s.ramoEnabled !== undefined) document.getElementById('touchRamoChk').checked = s.ramoEnabled;
+  setActiveProfile(activeProfile);
+  if (s.sortBy) { document.getElementById('sortBy').value = s.sortBy; currentSort = s.sortBy; }
+  formatWithNames();
+  runCalculation();
+}
+function renderSettingsPresetsList() {
+  const list = document.getElementById('settingsPresetsList');
+  const presets = getSettingsPresets();
+  const names = Object.keys(presets);
+  if (names.length === 0) { list.innerHTML = '<div class="preset-empty">Нет сохранённых настроек</div>'; return; }
+  list.innerHTML = names.map(name => `
+    <div class="preset-row">
+      <span class="preset-name">${escapeHtml(name)}</span>
+      <button type="button" class="secondary small" data-load="${escapeHtml(name)}">Загрузить</button>
+      <button type="button" class="danger small" data-del="${escapeHtml(name)}">Удалить</button>
+    </div>`).join('');
+  list.querySelectorAll('button[data-load]').forEach(b => {
+    b.addEventListener('click', () => {
+      applySettings(getSettingsPresets()[b.dataset.load]);
+      document.getElementById('settingsModal').classList.remove('open');
+      showToast(`Загружены «${b.dataset.load}»`);
+    });
+  });
+  list.querySelectorAll('button[data-del]').forEach(b => {
+    b.addEventListener('click', async () => {
+      if (!await confirmDialog('Удалить настройки?', `«${b.dataset.del}»`)) return;
+      const p = getSettingsPresets();
+      delete p[b.dataset.del];
+      saveSettingsPresets(p);
+      renderSettingsPresetsList();
+    });
+  });
+}
+function exportAll() {
+  try {
+    const data = {
+      version: 13, exportDate: new Date().toISOString(),
+      current: captureCurrentSettings(),
+      settingsPresets: getSettingsPresets(),
+      timbrePresets: getTimbrePresets()
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `scalescope_${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast('Файл экспортирован');
+  } catch (e) { showToast('Ошибка: ' + e.message, 'error'); }
+}
+function importAll(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data || typeof data !== 'object') throw new Error('Некорректный формат');
+      const es = getSettingsPresets(), et = getTimbrePresets();
+      const addSuffix = (name, ex) => { if (!ex[name]) return name; let i = 2; while (ex[`${name} (${i})`]) i++; return `${name} (${i})`; };
+      let iS = 0, iT = 0;
+      if (data.settingsPresets) for (const [n, p] of Object.entries(data.settingsPresets)) { es[addSuffix(n, es)] = p; iS++; }
+      if (data.timbrePresets) for (const [n, p] of Object.entries(data.timbrePresets)) { et[addSuffix(n, et)] = p; iT++; }
+      saveSettingsPresets(es); saveTimbrePresets(et);
+      if (data.current) applySettings(data.current);
+      showToast(`Импортировано: настроек ${iS}, тембров ${iT}`);
+    } catch (err) { showToast('Ошибка импорта: ' + err.message, 'error'); }
+  };
+  reader.onerror = () => showToast('Ошибка чтения файла', 'error');
+  reader.readAsText(file);
+}
+
+// ===================== Touch mode =====================
+const touchNotes = new Map();
+let touchMasterGain = null;
+let touchLimiter = null;
+let touchD0cache = null;
+let touchD0building = false;
+let touchNoteOrder = 0;
+const ramoOscs = new Map(); // id -> {osc, gain}
+
+function touchInvalidateD0() { touchD0cache = null; }
+
+function touchBuildD0() {
+  if (touchD0building) return;
+  const key = currentHarmonicsVal + '|' + activeProfile + '|' + JSON.stringify(getActiveAmps().slice(1, currentHarmonicsVal + 1));
+  if (touchD0cache && touchD0cache.key === key) return;
+  touchD0building = true;
+  setTimeout(() => {
+    const harm = currentHarmonicsVal;
+    const amps = getActiveAmps();
+    const baseSpec = [];
+    for (let i = 1; i <= harm; i++) if (amps[i] > 0.001) baseSpec.push({ freq: BASE_FREQ * i, amp: amps[i] });
+    const step = 4;
+    const n = Math.floor(1200 / step) + 1;
+    const arr = new Float32Array(n);
+    if (baseSpec.length === 0) {
+      arr.fill(0);
+      touchD0cache = { arr, step, n, maxD: 0, key };
+    } else {
+      let maxD = 0;
+      for (let i = 0; i < n; i++) {
+        const d = i * step;
+        const shifted = baseSpec.map(p => ({ freq: p.freq * Math.pow(2, d / 1200), amp: p.amp }));
+        arr[i] = totalDissonance(baseSpec, shifted);
+        if (arr[i] > maxD) maxD = arr[i];
+      }
+      touchD0cache = { arr, step, n, maxD, key };
+    }
+    touchD0building = false;
+    if (mode === 'touch') touchScheduleRender();
+  }, 10);
+}
+
+function touchD0(cents) {
+  if (!touchD0cache) return 0;
+  let a = Math.abs(cents) % 1200;
+  const idx = a / touchD0cache.step;
+  const i0 = Math.floor(idx);
+  const i1 = Math.min(i0 + 1, touchD0cache.n - 1);
+  const f = idx - i0;
+  return touchD0cache.arr[i0] * (1 - f) + touchD0cache.arr[i1] * f;
+}
+
+function ensureTouchAudio() {
+  if (!touchMasterGain) {
+    const ctx = getCtx();
+    touchMasterGain = ctx.createGain();
+    touchMasterGain.gain.value = 0.5;
+    touchLimiter = ctx.createDynamicsCompressor();
+    touchLimiter.threshold.value = -6;
+    touchLimiter.knee.value = 6;
+    touchLimiter.ratio.value = 12;
+    touchMasterGain.connect(touchLimiter);
+    touchLimiter.connect(ctx.destination);
+  }
+  if (getCtx().state === 'suspended') getCtx().resume();
+}
+
+function buildTouchWave() {
+  const ctx = getCtx();
+  const harm = currentHarmonicsVal;
+  const amps = getActiveAmps();
+  const real = new Float32Array(harm + 1);
+  const imag = new Float32Array(harm + 1);
+  for (let i = 1; i <= harm; i++) if (amps[i] > 0) imag[i] = amps[i];
+  return ctx.createPeriodicWave(real, imag, { disableNormalization: false });
+}
+
+function updateRamoTones() {
+  const ramoOn = document.getElementById('touchRamoChk').checked;
+  // Удаляем старые разностные тоны
+  for (const [id, { osc, gain }] of ramoOscs.entries()) {
+    try { gain.gain.setTargetAtTime(0, getCtx().currentTime, 0.05); } catch (e) {}
+    setTimeout(() => { try { osc.stop(); osc.disconnect(); gain.disconnect(); } catch (e) {} }, 100);
+    ramoOscs.delete(id);
+  }
+  if (!ramoOn) return;
+  const notes = Array.from(touchNotes.values());
+  if (notes.length < 2 || notes.length > 3) return; // Ограничиваем 3 нотами для Рамо
+  for (let i = 0; i < notes.length; i++) {
+    for (let j = i + 1; j < notes.length; j++) {
+      const f1 = BASE_FREQ * Math.pow(2, notes[i].cents / 1200);
+      const f2 = BASE_FREQ * Math.pow(2, notes[j].cents / 1200);
+      let diff = Math.abs(f2 - f1);
+      while (diff < 30) diff *= 2;
+      if (diff >= 20000) continue;
+      const ctx = getCtx();
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = diff;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.06, ctx.currentTime + 0.02); // потише, чтобы не перегружать
+      osc.connect(gain);
+      gain.connect(touchMasterGain);
+      osc.start();
+      const id = `ramo_${i}_${j}_${Date.now()}`;
+      ramoOscs.set(id, { osc, gain });
+    }
+  }
+}
+
+function touchCreateNote(id, cents, vol) {
+  ensureTouchAudio();
+  touchRemoveNote(id);
+  const ctx = getCtx();
+  const osc = ctx.createOscillator();
+  osc.setPeriodicWave(buildTouchWave());
+  osc.frequency.value = BASE_FREQ * Math.pow(2, cents / 1200);
+  const gain = ctx.createGain();
+  const tgt = Math.pow(vol, 2) * 0.4;
+  gain.gain.setValueAtTime(0, ctx.currentTime);
+  gain.gain.linearRampToValueAtTime(tgt, ctx.currentTime + 0.02);
+  osc.connect(gain); gain.connect(touchMasterGain);
+  osc.start();
+  touchNotes.set(id, { osc, gain, cents, volume: vol, order: ++touchNoteOrder });
+  updateRamoTones();
+}
+function touchUpdateNote(id, cents, vol) {
+  const n = touchNotes.get(id);
+  if (!n) return;
+  const ctx = getCtx();
+  n.osc.frequency.setTargetAtTime(BASE_FREQ * Math.pow(2, cents / 1200), ctx.currentTime, 0.01);
+  n.gain.gain.setTargetAtTime(Math.pow(vol, 2) * 0.4, ctx.currentTime, 0.02);
+  n.cents = cents; n.volume = vol;
+  // Обновляем Рамо при изменении высоты
+  if (document.getElementById('touchRamoChk').checked) {
+    updateRamoTones(); // Проще пересоздать, так как частоты изменились
+  }
+}
+function touchRemoveNote(id) {
+  const n = touchNotes.get(id);
+  if (!n) return;
+  const ctx = getCtx();
+  n.gain.gain.cancelScheduledValues(ctx.currentTime);
+  n.gain.gain.setValueAtTime(n.gain.gain.value, ctx.currentTime);
+  n.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.05);
+  const osc = n.osc;
+  setTimeout(() => { try { osc.stop(); osc.disconnect(); } catch (e) {} }, 100);
+  touchNotes.delete(id);
+  updateRamoTones();
+}
+function touchUpdateWaves() {
+  if (touchNotes.size === 0) return;
+  const w = buildTouchWave();
+  for (const n of touchNotes.values()) { try { n.osc.setPeriodicWave(w); } catch (e) {} }
+}
+
+function touchFirstNote() {
+  if (touchNotes.size === 0) return null;
+  let best = null;
+  for (const n of touchNotes.values()) {
+    if (!best || n.order < best.order) best = n;
+  }
+  return best;
+}
+
+function touchPointerToNote(e) {
+  const canvas = document.getElementById('curveCanvas');
+  const rect = canvas.getBoundingClientRect();
+  const padL = 40, padR = 20, axisH = 30;
+  const w = rect.width - padL - padR;
+  const playH = rect.height - axisH;
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  if (x < padL || x > rect.width - padR) return null;
+  if (y < 0 || y > playH) return null;
+  const relX = (x - padL) / w;
+  return { cents: relX * 2400 - 1200, volume: Math.max(0, Math.min(1, 1 - y / playH)) };
+}
+
+let touchPending = false;
+function touchScheduleRender() {
+  if (touchPending) return;
+  touchPending = true;
+  requestAnimationFrame(() => { touchPending = false; if (mode === 'touch') drawTouchCanvas(); });
+}
+
+// === Новый алгоритм поиска пиков ===
+function findConsonancePeaks(total, N, maxD, maxCount) {
+  if (maxD <= 0 || N < 5) return [];
+  const candidates = [];
+  const promWin = 24;
+  for (let i = 2; i < N - 2; i++) {
+    if (total[i] > total[i-1] || total[i] > total[i+1]) continue;
+    if (total[i] > total[i-2] || total[i] > total[i+2]) continue;
+    let leftMax = 0, rightMax = 0;
+    for (let j = Math.max(0, i - promWin); j < i; j++) {
+      if (total[j] > leftMax) leftMax = total[j];
+    }
+    for (let j = i + 1; j <= Math.min(N - 1, i + promWin); j++) {
+      if (total[j] > rightMax) rightMax = total[j];
+    }
+    const prom = Math.min(leftMax, rightMax) - total[i];
+    const promRatio = prom / maxD;
+    if (promRatio < 0.02) continue;
+    const cons = 1 - total[i] / maxD;
+    candidates.push({ i, cents: (i / N) * 2400 - 1200, cons, promRatio });
+  }
+  candidates.sort((a, b) => b.promRatio - a.promRatio);
+  const selected = [];
+  for (const c of candidates) {
+    if (selected.length >= maxCount) break;
+    const tooClose = selected.some(s => Math.abs(s.cents - c.cents) < 25);
+    if (tooClose) continue;
+    selected.push(c);
+  }
+  selected.sort((a, b) => a.cents - b.cents);
+  return selected;
+}
+
+function drawTouchCanvas() {
+  const canvas = document.getElementById('curveCanvas');
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width < 10 || rect.height < 10) return;
+  canvas.width = Math.round(rect.width * dpr);
+  canvas.height = Math.round(rect.height * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const padL = 40, padR = 20, axisH = 30;
+  const playH = H - axisH;
+  const pw = W - padL - padR;
+
+  // Верхняя зона для кривой (50% высоты, но перекрытие с игровой зоной 20%)
+  const curveH = H * 0.5;
+  const curveY = 0; // Кривая будет в верхней половине, "ямами" вниз
+
+  ctx.fillStyle = '#f5f9f5';
+  ctx.fillRect(0, 0, W, H);
+
+  // Сетка
+  ctx.strokeStyle = '#e8f0e7'; ctx.lineWidth = 1;
+  for (let c = -1200; c <= 1200; c += 100) {
+    if (c % 300 === 0) continue;
+    const x = padL + ((c + 1200) / 2400) * pw;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  ctx.strokeStyle = '#d0e4d0'; ctx.lineWidth = 1;
+  for (let c = -1200; c <= 1200; c += 300) {
+    const x = padL + ((c + 1200) / 2400) * pw;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  ctx.font = '11px sans-serif'; ctx.fillStyle = '#8aa08a'; ctx.textAlign = 'center';
+  for (let c = -1200; c <= 1200; c += 300) {
+    const x = padL + ((c + 1200) / 2400) * pw;
+    ctx.fillText(c === 0 ? 'C' : (c > 0 ? '+' + c : '' + c), x, 14);
+  }
+
+  const cx = padL + 0.5 * pw;
+  ctx.strokeStyle = '#a5d6a7'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, H); ctx.stroke();
+
+  // Игровая зона (нижние 70%) - граница
+  const playZoneTop = H * 0.3;
+  ctx.strokeStyle = 'rgba(21,101,192,0.2)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(padL, playZoneTop); ctx.lineTo(W - padR, playZoneTop); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Кривая консонанса (в верхней зоне)
+  const notesArr = Array.from(touchNotes.values()).sort((a, b) => a.cents - b.cents);
+  if (notesArr.length > 0 && touchD0cache && touchD0cache.maxD > 0) {
+    const N = 240;
+    const total = new Float32Array(N + 1);
+    let maxD = 0;
+    for (let i = 0; i <= N; i++) {
+      const c = (i / N) * 2400 - 1200;
+      let d = 0;
+      for (const n of notesArr) d += touchD0(c - n.cents);
+      total[i] = d;
+      if (d > maxD) maxD = d;
+    }
+    if (maxD > 0) {
+      // Рисуем "ямы" вниз от верха
+      ctx.beginPath();
+      ctx.moveTo(padL, curveY);
+      for (let i = 0; i <= N; i++) {
+        const x = padL + (i / N) * pw;
+        const cons = 1 - total[i] / maxD;
+        // "Яма" = консонанс, рисуем вниз от верха
+        const depth = cons * (curveH - 4);
+        ctx.lineTo(x, curveY + depth);
+      }
+      ctx.lineTo(padL + pw, curveY);
+      ctx.closePath();
+      const g = ctx.createLinearGradient(0, 0, 0, curveH);
+      g.addColorStop(0, 'rgba(46,125,50,0.08)');
+      g.addColorStop(1, 'rgba(46,125,50,0.5)');
+      ctx.fillStyle = g; ctx.fill();
+      ctx.strokeStyle = '#2e7d32'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i <= N; i++) {
+        const x = padL + (i / N) * pw;
+        const cons = 1 - total[i] / maxD;
+        const depth = cons * (curveH - 4);
+        i === 0 ? ctx.moveTo(x, curveY + depth) : ctx.lineTo(x, curveY + depth);
+      }
+      ctx.stroke();
+
+      // Поиск и отрисовка пиков (вертикальные линии ВНИЗ от "ям")
+      const maxPeaks = Math.max(1, parseInt(document.getElementById('maxPeaks').value) || 15);
+      const peaks = findConsonancePeaks(total, N, maxD, maxPeaks);
+      peaks.forEach(p => {
+        const x = padL + ((p.cents + 1200) / 2400) * pw;
+        const depth = p.cons * (curveH - 4);
+        const bottomY = curveY + depth;
+        ctx.strokeStyle = 'rgba(21,101,192,0.35)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x, bottomY);
+        ctx.lineTo(x, playH); // Линия идёт вниз, в игровую зону
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(21,101,192,0.7)';
+        ctx.beginPath(); ctx.arc(x, bottomY, 3, 0, Math.PI * 2); ctx.fill();
+      });
+    }
+  }
+
+  // Ноты
+  const first = touchFirstNote();
+  const firstCents = first ? first.cents : 0;
+  notesArr.forEach(note => {
+    const x = padL + ((note.cents + 1200) / 2400) * pw;
+    const y = (1 - note.volume) * playH;
+    ctx.strokeStyle = 'rgba(239,108,0,0.75)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, playH); ctx.stroke();
+    ctx.fillStyle = '#ef6c00';
+    ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.stroke();
+
+    let label;
+    if (note === first) {
+      const c = Math.round(note.cents);
+      label = c === 0 ? 'C' : (c > 0 ? '+' + c + '¢' : c + '¢');
+    } else {
+      const diff = note.cents - firstCents;
+      const absDiff = Math.abs(diff);
+      const pi = findPureByCents(absDiff, 15);
+      if (pi) {
+        label = `${pi.ratio} — ${pi.name} (${diff > 0 ? '+' : ''}${diff.toFixed(0)}¢)`;
+      } else {
+        label = (diff > 0 ? '+' : '') + diff.toFixed(0) + '¢';
+      }
+    }
+    ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
+    const ly = Math.max(26, Math.min(y - 16, playH - 22));
+    const tw = ctx.measureText(label).width + 14;
+    ctx.fillStyle = 'rgba(255,255,255,0.94)';
+    ctx.fillRect(x - tw/2, ly - 13, tw, 19);
+    ctx.strokeStyle = 'rgba(239,108,0,0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - tw/2, ly - 13, tw, 19);
+    ctx.fillStyle = '#ef6c00';
+    ctx.fillText(label, x, ly);
+  });
+
+  // Ось центов
+  ctx.strokeStyle = '#d0e4d0'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, playH); ctx.lineTo(W, playH); ctx.stroke();
+  ctx.fillStyle = '#5a6e5a'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+  for (let c = -1200; c <= 1200; c += 300) {
+    const x = padL + ((c + 1200) / 2400) * pw;
+    ctx.fillText(c === 0 ? 'C' : (c > 0 ? '+' + c : '' + c), x, playH + 18);
+  }
+
+  // Инфо
+  const info = document.getElementById('touchChordInfo');
+  if (notesArr.length === 0) {
+    info.textContent = touchD0cache && touchD0cache.maxD > 0
+      ? 'Нажмите на поле · Shift+клик — зафиксировать · Alt+клик — убрать'
+      : 'Подготовка спектра…';
+  } else if (notesArr.length === 1) {
+    const c = Math.round(notesArr[0].cents);
+    info.textContent = `1 нота: ${c === 0 ? 'C' : (c > 0 ? '+' + c + '¢' : c + '¢')}`;
+  } else {
+    const ints = notesArr.filter(n => n !== first).map(n => {
+      const d = n.cents - firstCents;
+      const pi = findPureByCents(Math.abs(d), 15);
+      return pi ? `${pi.ratio} (${d > 0 ? '+' : ''}${d.toFixed(0)}¢)` : `${d > 0 ? '+' : ''}${d.toFixed(0)}¢`;
+    });
+    info.textContent = `${notesArr.length} ноты · от 1-й: ${ints.join(' · ')}`;
+  }
+}
+
+// ===================== Обработчики canvas =====================
+function setupCanvasHandlers() {
+  const canvas = document.getElementById('curveCanvas');
+  const tooltip = document.getElementById('tooltipCents');
+
+  canvas.addEventListener('click', (e) => {
+    if (mode !== 'analysis') return;
+    const cents = canvasClickToCents(e);
+    if (cents === null) return;
+    if (e.shiftKey) { e.preventDefault(); addIntervalAtCents(cents); }
+    else if (e.altKey) { e.preventDefault(); removeIntervalAtCents(cents); }
+    else { playIntervalAtCents(cents); }
+  });
+
+  canvas.addEventListener('mousemove', (e) => {
+    if (mode !== 'analysis') { tooltip.style.display = 'none'; return; }
+    const cents = canvasClickToCents(e);
+    if (cents === null) { tooltip.style.display = 'none'; return; }
+    const pi = findPureByCents(cents, 6);
+    tooltip.textContent = pi ? `${Math.round(cents)}¢ — ${pi.name} (${pi.ratio})` : `${Math.round(cents)}¢`;
+    tooltip.style.left = (e.clientX + 12) + 'px';
+    tooltip.style.top = (e.clientY + 12) + 'px';
+    tooltip.style.display = 'block';
+  });
+  canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (mode !== 'touch') return;
+    e.preventDefault();
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+    const pt = touchPointerToNote(e);
+    if (!pt) return;
+
+    if (e.shiftKey) {
+      let already = false;
+      for (const n of touchNotes.values()) {
+        if (Math.abs(n.cents - pt.cents) < 20) { already = true; break; }
+      }
+      if (!already) {
+        const id = 'fixed_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        touchCreateNote(id, pt.cents, pt.volume);
+      }
+      try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+    } else if (e.altKey) {
+      let bestId = null, bestDist = 40;
+      for (const [id, n] of touchNotes.entries()) {
+        const d = Math.abs(n.cents - pt.cents);
+        if (d < bestDist) { bestDist = d; bestId = id; }
+      }
+      if (bestId) touchRemoveNote(bestId);
+      try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+    } else {
+      touchCreateNote(e.pointerId, pt.cents, pt.volume);
+    }
+    touchBuildD0();
+    touchScheduleRender();
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (mode !== 'touch') return;
+    const note = touchNotes.get(e.pointerId);
+    if (!note) return;
+    const pt = touchPointerToNote(e);
+    if (!pt) return;
+    touchUpdateNote(e.pointerId, pt.cents, pt.volume);
+    touchScheduleRender();
+  });
+
+  function endPointer(e) {
+    if (mode !== 'touch') return;
+    if (touchNotes.has(e.pointerId)) {
+      touchRemoveNote(e.pointerId);
+      touchScheduleRender();
+    }
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+  canvas.addEventListener('pointerleave', endPointer);
+
+  setInterval(() => {
+    if (mode === 'touch') touchScheduleRender();
+  }, 150);
+}
+
+// ===================== Инициализация =====================
+window.addEventListener('DOMContentLoaded', () => {
+  if (!localStorageOk) showToast('localStorage недоступен — пресеты не сохранятся', 'error');
+  setupHarmonicsControl();
+  buildSliders(currentHarmonicsVal);
+  updateCurrentWaveSvg();
+
+  document.getElementById('btnProfileA').addEventListener('click', () => setActiveProfile('A'));
+  document.getElementById('btnProfileB').addEventListener('click', () => setActiveProfile('B'));
+
+  document.getElementById('modeToggleBtn').addEventListener('click', () => {
+    setMode(mode === 'touch' ? 'analysis' : 'touch');
+  });
+
+  document.getElementById('maxPeaks').addEventListener('input', () => {
+    if (mode === 'touch') touchScheduleRender();
+  });
+
+  document.getElementById('touchRamoChk').addEventListener('change', () => {
+    if (mode === 'touch') updateRamoTones();
+  });
+
+  document.getElementById('presetPickerBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    togglePresetPanel(!document.getElementById('presetPickerPanel').classList.contains('open'));
+  });
+  document.addEventListener('click', (e) => {
+    const picker = document.querySelector('.preset-picker');
+    if (picker && !picker.contains(e.target)) togglePresetPanel(false);
+  });
+
+  document.getElementById('findNearestBtn').addEventListener('click', () => {
+    const target = profiles.A.amps;
+    let bestId = '', bestSim = -1;
+    for (const id of [...Object.keys(SYNTH_PRESETS), ...Object.keys(INSTRUMENT_PRESETS)]) {
+      let dot = 0, m1 = 0, m2 = 0;
+      const a = getPresetAmps(id);
+      for (let i = 1; i <= 40; i++) { dot += target[i] * a[i]; m1 += target[i] ** 2; m2 += a[i] ** 2; }
+      const sim = (m1 && m2) ? dot / Math.sqrt(m1 * m2) : 0;
+      if (sim > bestSim) { bestSim = sim; bestId = id; }
+    }
+    if (bestId) {
+      profiles.B.amps = [...getPresetAmps(bestId)];
+      profiles.B.name = getPresetName(bestId);
+      document.getElementById('profileBName').textContent = profiles.B.name;
+      setActiveProfile('B');
+      showToast(`Ближайший: ${profiles.B.name} (${(bestSim*100).toFixed(1)}%)`, 'info');
+    }
+  });
+
+  document.getElementById('saveTimbreBtn').addEventListener('click', async () => {
+    const name = await promptName('Имя пресета:');
+    if (!name) return;
+    const presets = getTimbrePresets();
+    if (presets[name] && !await confirmDialog('Перезаписать?', `«${name}»`)) return;
+    presets[name] = { amps: [...getActiveAmps()] };
+    if (saveTimbrePresets(presets)) {
+      profiles[activeProfile].name = name;
+      showToast(`Сохранён «${name}»`);
+    }
+  });
+
+  document.getElementById('deleteTimbreBtn').addEventListener('click', async () => {
+    const name = profiles[activeProfile].name;
+    if (!name || name === 'Своя форма' || name === 'Пила') { showToast('Нет сохранённого', 'error'); return; }
+    const presets = getTimbrePresets();
+    if (!presets[name]) { showToast('Не найден', 'error'); return; }
+    if (!await confirmDialog('Удалить пресет?', `«${name}»`)) return;
+    delete presets[name];
+    saveTimbrePresets(presets);
+    profiles[activeProfile].name = 'Своя форма';
+    showToast(`Удалён «${name}»`);
+  });
+
+  document.getElementById('saveSettingsBtn').addEventListener('click', async () => {
+    const name = await promptName('Имя настроек:');
+    if (!name) return;
+    const presets = getSettingsPresets();
+    if (presets[name] && !await confirmDialog('Перезаписать?', `«${name}»`)) return;
+    presets[name] = captureCurrentSettings();
+    if (saveSettingsPresets(presets)) showToast(`Сохранены «${name}»`);
+  });
+  document.getElementById('loadSettingsBtn').addEventListener('click', () => {
+    renderSettingsPresetsList();
+    document.getElementById('settingsModal').classList.add('open');
+  });
+  document.getElementById('closeSettingsBtn').addEventListener('click', () => {
+    document.getElementById('settingsModal').classList.remove('open');
+  });
+  document.getElementById('exportBtn').addEventListener('click', exportAll);
+  document.getElementById('importBtn').addEventListener('click', () => document.getElementById('importFile').click());
+  document.getElementById('importFile').addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    if (f) importAll(f);
+    e.target.value = '';
+  });
+
+  document.getElementById('calcBtn').addEventListener('click', runCalculation);
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    document.getElementById('intervals').value = '9/8 *0.5\n7/6 *0.4\n6/5 *1.0\n5/4 *1.0\n4/3 *1.0\n11/8 *0.5\n7/5 *0.4\n3/2 *1.5\n8/5 *0.8\n13/8 *0.4\n5/3 *0.8\n7/4 *0.6\n15/8 *0.3';
+    document.getElementById('minEdo').value = 7;
+    document.getElementById('maxEdo').value = 72;
+    document.getElementById('tolerance').value = 5;
+    runCalculation();
+  });
+  document.getElementById('stripWeightsBtn').addEventListener('click', () => {
+    const ta = document.getElementById('intervals');
+    ta.value = ta.value.split('\n').map(l => { const p = parseInterval(l); return p ? p.raw : l; }).join('\n');
+    runCalculation();
+  });
+
+  document.getElementById('sortBy').addEventListener('change', (e) => { currentSort = e.target.value; expandedView = false; renderTable(false); });
+  document.getElementById('expandBtn').addEventListener('click', () => { expandedView = !expandedView; renderTable(expandedView); });
+  document.getElementById('resultsToggleBtn').addEventListener('click', () => {
+    resultsCollapsed = !resultsCollapsed;
+    document.getElementById('resultsBody').style.display = resultsCollapsed ? 'none' : 'block';
+    document.getElementById('resultsToggleBtn').textContent = resultsCollapsed ? 'Развернуть' : 'Свернуть';
+  });
+  document.getElementById('hintsToggle').addEventListener('click', () => {
+    const body = document.getElementById('hintsBody');
+    const btn = document.getElementById('hintsToggle');
+    const hidden = body.style.display === 'none';
+    body.style.display = hidden ? 'block' : 'none';
+    btn.textContent = hidden ? 'Скрыть пояснения' : 'Показать пояснения';
+  });
+
+  document.getElementById('playPure').addEventListener('click', () => {
+    const it = parsedIntervals[parseInt(document.getElementById('demoInterval').value)];
+    if (it) playInterval(it.cents, 1.6);
+  });
+  document.getElementById('playEdo').addEventListener('click', () => {
+    const it = parsedIntervals[parseInt(document.getElementById('demoInterval').value)];
+    const edo = parseInt(document.getElementById('demoEdo').value);
+    if (!it || !edo) return;
+    const step = 1200 / edo;
+    playInterval(Math.round(it.cents / step) * step, 1.6);
+  });
+  document.getElementById('showCombTone').addEventListener('change', updateCombToneInfo);
+  document.getElementById('demoInterval').addEventListener('change', updateCombToneInfo);
+  document.getElementById('demoEdo').addEventListener('change', () => { updateCurve(); updateCombToneInfo(); });
+  document.getElementById('demoEdo').addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const sel = e.target;
+    let idx = sel.selectedIndex;
+    if (e.deltaY < 0) idx = Math.max(0, idx - 1); else idx = Math.min(sel.options.length - 1, idx + 1);
+    sel.selectedIndex = idx;
+    sel.dispatchEvent(new Event('change'));
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      document.getElementById('settingsModal').classList.remove('open');
+    }
+  });
+
+  window.addEventListener('resize', () => {
+    if (mode === 'touch') {
+      touchScheduleRender();
+    } else if (parsedIntervals.length > 0) {
+      updateCurve();
+    }
+  });
+
+  setupCanvasHandlers();
+
+  document.getElementById('intervals').addEventListener('blur', formatWithNames);
+
+  runCalculation();
+});
+</script>
+</body>
+</html>
